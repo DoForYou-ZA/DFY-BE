@@ -35,7 +35,7 @@ public class BankingController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var bankGroupId = request.BankGroupId.Trim();
+        var bankGroupId = request.Code.Trim();
         var bankName = request.BankName.Trim();
         var accountNumber = request.AccountNumber.Trim();
         var accountHolderName = request.AccountHolderName.Trim();
@@ -78,7 +78,7 @@ public class BankingController : ControllerBase
         }
 
         // The provider's bank code is authoritative. Never trust display values supplied by the client.
-        bankName = selectedBank.BankGroupName;
+        bankName = selectedBank.Name;
         branchCode = selectedBank.UniversalBranchCode;
 
         var isValid = await _bankingService.ValidateBankAccountAsync(
@@ -113,8 +113,8 @@ public class BankingController : ControllerBase
         var bankAccount = new BankAccount
         {
             UserId = userId.Value,
-            BankName = selectedBank.BankGroupName,
-            BankGroupId = selectedBank.BankGroupId,
+            BankName = selectedBank.Name,
+            Code = selectedBank.Code,
             AccountNumber = accountNumber,
             AccountHolderName = accountHolderName,
             BranchCode = branchCode,
@@ -334,7 +334,7 @@ public class BankingController : ControllerBase
         CancellationToken cancellationToken)
     {
         var banks =
-            await _ozowBankService.GetAvailableBanksAsync(
+            await _bankProvider.GetAvailableBanksAsync(
                 cancellationToken);
 
         if (banks.Count == 0)
@@ -376,7 +376,7 @@ public class BankingController : ControllerBase
 
 public class AddBankAccountRequest
 {
-    public string BankGroupId { get; set; } = string.Empty;
+    public string Code { get; set; } = string.Empty;
     public string BankName { get; set; } = string.Empty;
     public string AccountNumber { get; set; } = string.Empty;
     public string AccountHolderName { get; set; } = string.Empty;
