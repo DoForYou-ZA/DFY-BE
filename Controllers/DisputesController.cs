@@ -264,32 +264,29 @@ public class DisputesController : ControllerBase
                 HttpContext.RequestAborted);
             var matchingProviderRefund = providerRefunds
                 .Where(r => r.Amount == refundRecord.Amount)
-                .OrderByDescending(r => r.Status == 1)
+                .OrderByDescending(r => string.Equals(r.Status, "processed", StringComparison.OrdinalIgnoreCase))
                 .FirstOrDefault();
 
             if (matchingProviderRefund != null)
             {
                 refundRecord.RefundId = matchingProviderRefund.RefundId;
-                refundRecord.Status = matchingProviderRefund.Status switch
+                refundRecord.Status = matchingProviderRefund.Status.ToLowerInvariant() switch
                 {
-                    1 => "Complete",
-                    3 => "Failed",
-                    4 => "Cancelled",
-                    5 => "Returned",
-                    -1 => "Invalid",
-                    -2 => "PendingInvestigation",
-                    -3 => "Error",
+                    "processed" => "Complete",
+                    "failed" => "Failed",
+                    "needs-attention" => "PendingInvestigation",
+                    "pending" or "processing" => "Submitted",
                     _ => "Submitted"
                 };
                 refundRecord.LastReconciledAt = DateTime.UtcNow;
-                if (matchingProviderRefund.Status == 1)
+                if (refundRecord.Status == "Complete")
                     refundRecord.CompletedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
 
-                if (matchingProviderRefund.Status == 1)
+                if (refundRecord.Status == "Complete")
                     return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "The refund was confirmed with Paystack." });
 
-                if (matchingProviderRefund.Status is 3 or 4 or 5 or -1 or -3)
+                if (refundRecord.Status is "Failed" or "PendingInvestigation")
                     return Conflict(new ApiResponse<bool> { Success = false, Message = $"Paystack reports the existing refund as {refundRecord.Status}." });
 
                 return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already with Paystack and awaiting completion." });
