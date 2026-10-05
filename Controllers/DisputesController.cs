@@ -259,7 +259,7 @@ public class DisputesController : ControllerBase
             }
 
             // If a previous attempt has a provider record, reconcile it before resubmitting.
-            var providerRefunds = await _ozowPaymentService.GetRefundsByTransactionIdAsync(
+            var providerRefunds = await _paymentProvider.GetRefundsByTransactionIdAsync(
                 refundRecord.TransactionId,
                 HttpContext.RequestAborted);
             var matchingProviderRefund = providerRefunds
@@ -295,7 +295,7 @@ public class DisputesController : ControllerBase
                 return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already with Paystack and awaiting completion." });
             }
 
-            var refund = await _ozowPaymentService.SubmitRefundAsync(
+            var refund = await _paymentProvider.CreateRefundAsync(
                 refundRecord.TransactionId,
                 refundRecord.Amount,
                 refundRecord.Reason,
