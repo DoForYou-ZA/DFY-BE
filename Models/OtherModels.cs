@@ -17,6 +17,7 @@ public class Payment
     public int TaskId { get; set; }
     public decimal Amount { get; set; }
     public string PaymentMethod { get; set; } = string.Empty;
+    public string Provider { get; set; } = "Paystack";
     public string Status { get; set; } = string.Empty;
     public string? PaymentUrl { get; set; }
     public string? TransactionId { get; set; }
