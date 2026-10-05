@@ -9,7 +9,7 @@ public class Refund
     public decimal Amount { get; set; }
     public string Reason { get; set; } = string.Empty;
     public string Status { get; set; } = "Pending"; // Pending, Submitted, Complete, Failed, Cancelled, Returned
-    public string? Provider { get; set; } = "Ozow";
+    public string? Provider { get; set; } = "Paystack";
     public string? FailureReason { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? SubmittedAt { get; set; }
