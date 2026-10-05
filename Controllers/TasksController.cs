@@ -319,7 +319,7 @@ public class TasksController : ControllerBase
         if (task == null || task.TaskStatus != "PendingPayment")
             return Ok(new ApiResponse<object> { Success = false, Message = "Task not found or payment not pending" });
 
-        var payment = await _ozowPaymentService.CreatePaymentAsync(task, task.CreatedByUser, HttpContext.RequestAborted);
+        var payment = await _paymentProvider.CreatePaymentAsync(task, task.CreatedByUser, HttpContext.RequestAborted);
         if (!payment.Success || string.IsNullOrWhiteSpace(payment.PaymentUrl))
             return StatusCode(StatusCodes.Status502BadGateway, new ApiResponse<object> { Success = false, Message = payment.Error ?? "Unable to create Ozow payment request." });
 
