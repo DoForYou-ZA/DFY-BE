@@ -101,7 +101,7 @@ public class EscrowService : IEscrowService
                 BankAccountId = bankAccount.Id,
                 Amount = task.PayoutAmount,
                 Status = "Pending",
-                Provider = "Ozow",
+                Provider = "Paystack",
                 MerchantReference = merchantReference,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
