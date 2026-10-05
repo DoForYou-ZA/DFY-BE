@@ -11,7 +11,7 @@ public class Payout
     public decimal Amount { get; set; }
 
     public string Status { get; set; } = "NotStarted";
-    public string Provider { get; set; } = "Ozow";
+    public string Provider { get; set; } = "Paystack";
 
     public string MerchantReference { get; set; } = string.Empty;
     public string? ProviderReference { get; set; }
