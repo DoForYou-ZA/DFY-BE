@@ -140,7 +140,7 @@ public class ScenarioTests
     [Fact]
     public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingPaystackPayout()
     {
-        using var context = CreateContext(nameof(EscrowRelease_CreatesPendingOzowPayout));
+        using var context = CreateContext(nameof(EscrowRelease_CreatesPendingPaystackPayout));
         var poster = CreateUser(1, "creator", true, "poster@test.com");
         var runner = CreateUser(2, "runner", true, "runner@test.com");
         context.Users.AddRange(poster, runner);
@@ -278,7 +278,8 @@ private static AppDbContext CreateContext(string name)
             new EscrowService(context, NullLogger<EscrowService>.Instance),
             new NoOpNotificationService(),
             configuration,
-            new FakePaystackPaymentProvider());
+            new FakePaystackPaymentProvider(),
+            new UserPolicyService());
 
         controller.ControllerContext = new ControllerContext
         {
