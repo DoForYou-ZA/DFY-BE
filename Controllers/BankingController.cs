@@ -16,16 +16,16 @@ public class BankingController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IBankingService _bankingService;
-    private readonly IOzowBankService _ozowBankService;
+    private readonly IBankProvider _bankProvider;
 
     public BankingController(
         AppDbContext context,
         IBankingService bankingService,
-        IOzowBankService ozowBankService)
+        IBankProvider bankProvider)
     {
         _context = context;
         _bankingService = bankingService;
-        _ozowBankService = ozowBankService;
+        _bankProvider = bankProvider;
     }
 
     [HttpPost("bank-accounts")]
@@ -47,7 +47,7 @@ public class BankingController : ControllerBase
             return Ok(new ApiResponse<object>
             {
                 Success = false,
-                Message = "A valid Ozow bank selection is required."
+                Message = "A valid bank selection is required."
             });
         }
 
@@ -58,13 +58,13 @@ public class BankingController : ControllerBase
             return Unauthorized();
 
         var availableBanks =
-            await _ozowBankService.GetAvailableBanksAsync(
+            await _bankProvider.GetSupportedBanksAsync(
                 HttpContext.RequestAborted);
 
         var selectedBank =
             availableBanks.FirstOrDefault(bank =>
                 string.Equals(
-                    bank.BankGroupId,
+                    bank.Code,
                     bankGroupId,
                     StringComparison.OrdinalIgnoreCase));
 
@@ -73,13 +73,11 @@ public class BankingController : ControllerBase
             return Ok(new ApiResponse<object>
             {
                 Success = false,
-                Message = "The selected bank is not currently available for Ozow payouts."
+                Message = "The selected bank is not currently available for payouts."
             });
         }
 
-        // BankGroupId is the authoritative bank selection.
-        // Always use Ozow's canonical bank name and universal branch code
-        // instead of trusting display values supplied by the client.
+        // The provider's bank code is authoritative. Never trust display values supplied by the client.
         bankName = selectedBank.BankGroupName;
         branchCode = selectedBank.UniversalBranchCode;
 
@@ -351,8 +349,8 @@ public class BankingController : ControllerBase
         var data =
             banks.Select(bank => new
             {
-                bankGroupId = bank.BankGroupId,
-                name = bank.BankGroupName,
+                bankGroupId = bank.Code,
+                name = bank.Name,
                 branchCode = bank.UniversalBranchCode
             }).ToList<object>();
 
