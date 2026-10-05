@@ -115,7 +115,9 @@ public class BankAccount
     public int Id { get; set; }
     public int UserId { get; set; }
     public string BankName { get; set; } = string.Empty;
-    public string? BankGroupId { get; set; }
+    public string? BankGroupId { get; set; } // Legacy Ozow field; retained for migration compatibility.
+    public string? BankCode { get; set; }
+    public string? ProviderReference { get; set; }
     public string AccountNumber { get; set; } = string.Empty;
     public string AccountHolderName { get; set; } = string.Empty;
     public string BranchCode { get; set; } = string.Empty;
