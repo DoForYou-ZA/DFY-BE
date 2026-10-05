@@ -16,17 +16,20 @@ public class PaymentController : ControllerBase
     private readonly IPaymentProvider _paymentProvider;
     private readonly IConfiguration _configuration;
     private readonly ILogger<PaymentController> _logger;
+    private readonly INotificationService _notificationService;
 
     public PaymentController(
         AppDbContext context,
         IPaymentProvider paymentProvider,
         IConfiguration configuration,
-        ILogger<PaymentController> logger)
+        ILogger<PaymentController> logger,
+        INotificationService notificationService)
     {
         _context = context;
         _paymentProvider = paymentProvider;
         _configuration = configuration;
         _logger = logger;
+        _notificationService = notificationService;
     }
 
     [HttpPost("initiate")]
@@ -88,6 +91,11 @@ public class PaymentController : ControllerBase
             if (eventName is "refund.processed" or "refund.failed" or "refund.pending" or "refund.processing")
             {
                 return await HandleRefundEvent(root, eventName);
+            }
+
+            if (eventName is "transfer.success" or "transfer.failed" or "transfer.reversed")
+            {
+                return await HandleTransferEvent(root, eventName);
             }
 
             // Paystack may add new events over time. Unknown events are acknowledged
@@ -293,6 +301,93 @@ public class PaymentController : ControllerBase
         return Ok();
     }
 
+
+
+    private async Task<IActionResult> HandleTransferEvent(JsonElement root, string eventName)
+    {
+        if (!root.TryGetProperty("data", out var data))
+            return BadRequest();
+
+        var reference = GetString(data, "reference");
+        var amountMinor = GetDecimal(data, "amount");
+
+        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
+            return BadRequest();
+
+        var normalizedReference = NormalizeProviderReference(reference);
+
+        var payouts = await _context.Payouts
+            .Include(p => p.Task)
+            .Where(p => p.Provider == "Paystack")
+            .ToListAsync();
+
+        var payout = payouts.FirstOrDefault(p =>
+            NormalizeProviderReference(p.MerchantReference) == normalizedReference);
+
+        if (payout == null)
+        {
+            _logger.LogWarning("Paystack transfer event {Reference} has no matching DFY payout.", reference);
+            return NotFound();
+        }
+
+        if (amountMinor.Value / 100m != payout.Amount)
+        {
+            _logger.LogWarning(
+                "Paystack payout amount mismatch for {Reference}. Expected {Expected}, received {Received}.",
+                reference, payout.Amount, amountMinor.Value / 100m);
+            return BadRequest();
+        }
+
+        payout.ProviderReference = GetString(data, "transfer_code") ?? payout.ProviderReference;
+        payout.UpdatedAt = DateTime.UtcNow;
+
+        if (eventName == "transfer.success")
+        {
+            payout.Status = "Completed";
+            payout.CompletedAt ??= DateTime.UtcNow;
+            payout.FailureReason = null;
+            payout.ProcessingError = null;
+            payout.NextAttemptAt = null;
+
+            if (payout.Task.TaskStatus != "RunnerPaid")
+            {
+                payout.Task.PayoutStatus = "Completed";
+                payout.Task.TaskStatus = "RunnerPaid";
+                payout.Task.PayoutCompletedAt = DateTime.UtcNow;
+                payout.Task.PaidToRunnerAt = DateTime.UtcNow;
+                payout.Task.UpdatedAt = DateTime.UtcNow;
+
+                await _notificationService.NotifyPaymentReleasedAsync(
+                    payout.RunnerId,
+                    payout.Task.TaskDescription,
+                    payout.Amount);
+            }
+        }
+        else if (eventName == "transfer.reversed")
+        {
+            payout.Status = "Returned";
+            payout.FailureReason = "Paystack reversed the runner payout.";
+            payout.ProcessingError = null;
+            payout.NextAttemptAt = null;
+            payout.Task.PayoutStatus = "Returned";
+            payout.Task.TaskStatus = "PayoutFailed";
+            payout.Task.UpdatedAt = DateTime.UtcNow;
+        }
+        else
+        {
+            payout.Status = "Failed";
+            payout.FailureReason = "Paystack transfer failed.";
+            payout.ProcessingError = null;
+            payout.NextAttemptAt = null;
+            payout.Task.PayoutStatus = "Failed";
+            payout.Task.TaskStatus = "PayoutFailed";
+            payout.Task.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
     [HttpGet("return")]
     [AllowAnonymous]
     public IActionResult PaymentReturn([FromQuery] string? taskId = null)
@@ -324,6 +419,11 @@ public class PaymentController : ControllerBase
 
         return Redirect(redirect);
     }
+
+    private static string NormalizeProviderReference(string reference) =>
+        new string(reference.ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_')
+            .ToArray());
 
     private static string? GetString(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null
