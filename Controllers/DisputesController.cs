@@ -17,14 +17,14 @@ public class DisputesController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IEscrowService _escrowService;
     private readonly INotificationService _notificationService;
-    private readonly IOzowPaymentService _ozowPaymentService;
+    private readonly IPaymentProvider _paymentProvider;
 
-    public DisputesController(AppDbContext context, IEscrowService escrowService, INotificationService notificationService, IOzowPaymentService ozowPaymentService)
+    public DisputesController(AppDbContext context, IEscrowService escrowService, INotificationService notificationService, IPaymentProvider paymentProvider)
     {
         _context = context;
         _escrowService = escrowService;
         _notificationService = notificationService;
-        _ozowPaymentService = ozowPaymentService;
+        _paymentProvider = paymentProvider;
     }
 
     [HttpPost]
@@ -58,7 +58,7 @@ public class DisputesController : ControllerBase
         };
 
         // A dispute must stop the normal 24-hour creator auto-release path. The task remains
-        // completed/held so an admin can later release it into the Ozow payout flow.
+        // completed/held so an admin can later release it into the provider payout flow.
         if (task.EscrowStatus == "held" || task.PaymentStatus == "EscrowHeld")
         {
             task.EscrowStatus = "disputed";
@@ -182,7 +182,7 @@ public class DisputesController : ControllerBase
         if (action == "release_to_runner")
         {
             // Re-open the escrow hold for the release service, then create the normal
-            // idempotent Ozow payout. The payout processor will only mark the runner paid
+            // idempotent payment provider payout. The payout processor will only mark the runner paid
             // after Ozow confirms status 5.
             task.EscrowStatus = "held";
             task.PaymentStatus = "EscrowHeld";
@@ -211,14 +211,14 @@ public class DisputesController : ControllerBase
                 .Where(a =>
                     a.EntityType == "Task" &&
                     a.EntityId == task.Id &&
-                    a.Action == "OzowPaymentVerified" &&
+                    a.Action == "PaymentVerified" &&
                     a.NewValues != null)
                 .OrderByDescending(a => a.CreatedAt)
                 .FirstOrDefaultAsync();
 
             var transactionId = ExtractAuditValue(paymentVerification?.NewValues, "transactionId");
             if (string.IsNullOrWhiteSpace(transactionId))
-                return Conflict(new ApiResponse<bool> { Success = false, Message = "Original Ozow transaction ID is not available; refund cannot be safely submitted." });
+                return Conflict(new ApiResponse<bool> { Success = false, Message = "Original payment transaction ID is not available; refund cannot be safely submitted." });
 
             var existingRefund = await _context.Refunds
                 .FirstOrDefaultAsync(r => r.TaskId == task.Id);
@@ -259,7 +259,7 @@ public class DisputesController : ControllerBase
             }
 
             // If a previous attempt has a provider record, reconcile it before resubmitting.
-            var providerRefunds = await _ozowPaymentService.GetRefundsByTransactionIdAsync(
+            var providerRefunds = await _paymentProvider.GetRefundsByTransactionIdAsync(
                 refundRecord.TransactionId,
                 HttpContext.RequestAborted);
             var matchingProviderRefund = providerRefunds
@@ -295,7 +295,7 @@ public class DisputesController : ControllerBase
                 return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already with Ozow and awaiting completion." });
             }
 
-            var refund = await _ozowPaymentService.SubmitRefundAsync(
+            var refund = await _paymentProvider.SubmitRefundAsync(
                 refundRecord.TransactionId,
                 refundRecord.Amount,
                 refundRecord.Reason,
@@ -326,7 +326,7 @@ public class DisputesController : ControllerBase
             await _context.AuditLogs.AddAsync(new Models.AuditLog
             {
                 UserId = GetCurrentUserId(),
-                Action = "OzowRefundSubmitted",
+                Action = "RefundSubmitted",
                 EntityType = "Task",
                 EntityId = task.Id,
                 NewValues = $"refundId={refund.RefundId}; transactionId={transactionId}; amount={task.Budget:F2}",
