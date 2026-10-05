@@ -198,6 +198,46 @@ public sealed class PaystackProvider(
         }
     }
 
+    public async Task<IReadOnlyList<RefundStatusResult>> GetRefundsByTransactionIdAsync(
+        string transactionId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(transactionId) || string.IsNullOrWhiteSpace(SecretKey))
+            return Array.Empty<RefundStatusResult>();
+
+        try
+        {
+            using var request = Request(
+                HttpMethod.Get,
+                $"refund?transaction={Uri.EscapeDataString(transactionId)}&currency=ZAR&perPage=50");
+
+            using var response = await Client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return Array.Empty<RefundStatusResult>();
+
+            using var document = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(cancellationToken));
+
+            if (!document.RootElement.TryGetProperty("data", out var data) ||
+                data.ValueKind != JsonValueKind.Array)
+                return Array.Empty<RefundStatusResult>();
+
+            return data.EnumerateArray()
+                .Select(item => new RefundStatusResult(
+                    GetString(item, "id") ?? string.Empty,
+                    GetString(item, "transaction") ?? transactionId,
+                    (GetDecimal(item, "amount") ?? 0m) / 100m,
+                    GetString(item, "status") ?? "unknown"))
+                .Where(x => !string.IsNullOrWhiteSpace(x.RefundId))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Paystack refund reconciliation failed for transaction {TransactionId}", transactionId);
+            return Array.Empty<RefundStatusResult>();
+        }
+    }
+
     public bool VerifyWebhookSignature(string rawBody, string? signature)
     {
         if (string.IsNullOrWhiteSpace(SecretKey) || string.IsNullOrWhiteSpace(signature))
