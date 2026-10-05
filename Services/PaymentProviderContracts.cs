@@ -25,6 +25,12 @@ public record RefundResult(
     string? Status,
     string? Error);
 
+public record RefundStatusResult(
+    string RefundId,
+    string TransactionId,
+    decimal Amount,
+    string Status);
+
 public record PayoutSubmissionResult(
     bool Success,
     string? ProviderReference,
@@ -63,6 +69,10 @@ public interface IPaymentProvider
         string transactionId,
         decimal amount,
         string reason,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<RefundStatusResult>> GetRefundsByTransactionIdAsync(
+        string transactionId,
         CancellationToken cancellationToken = default);
 
     bool VerifyWebhookSignature(string rawBody, string? signature);
