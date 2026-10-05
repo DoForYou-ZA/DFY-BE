@@ -57,8 +57,8 @@ public sealed class PaystackProvider(
             return new(false, null, null, "Paystack secret key is not configured.");
 
         var reference = string.IsNullOrWhiteSpace(task.PaymentReference)
-            ? $"dfy_pay_{task.TaskId}".ToLowerInvariant()
-            : task.PaymentReference;
+            ? $"dfy-pay-{task.TaskId}".ToLowerInvariant()
+            : NormalizePaymentReference(task.PaymentReference);
 
         var payload = new
         {
@@ -488,6 +488,21 @@ public sealed class PaystackProvider(
             logger.LogWarning(ex, "Paystack payout reconciliation failed for {Reference}", payout.MerchantReference);
             return new(false, false, null, null, "Unable to reconcile Paystack payout.");
         }
+    }
+
+    private static string NormalizePaymentReference(string reference)
+    {
+        var normalized = new string(reference
+            .ToLowerInvariant()
+            .Select(c => char.IsLetterOrDigit(c) || c is '-' or '.' or '=' ? c : '-')
+            .ToArray());
+
+        if (normalized.Length < 16)
+            normalized = $"dfy-pay-{normalized}";
+
+        return normalized.Length > 50
+            ? normalized[..50]
+            : normalized;
     }
 
     private static string NormalizeTransferReference(string reference)
