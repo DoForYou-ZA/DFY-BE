@@ -57,7 +57,7 @@ public class DisputesController : ControllerBase
             Status = "Open"
         };
 
-        // A dispute must stop the normal 48-hour auto-release path. The task remains
+        // A dispute must stop the normal 24-hour creator auto-release path. The task remains
         // completed/held so an admin can later release it into the Ozow payout flow.
         if (task.EscrowStatus == "held" || task.PaymentStatus == "EscrowHeld")
         {
