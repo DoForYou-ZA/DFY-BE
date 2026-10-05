@@ -138,7 +138,7 @@ public class ScenarioTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingOzowPayout()
+    public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingPaystackPayout()
     {
         using var context = CreateContext(nameof(EscrowRelease_CreatesPendingOzowPayout));
         var poster = CreateUser(1, "creator", true, "poster@test.com");
@@ -191,7 +191,7 @@ public class ScenarioTests
         Assert.Equal(bankAccount.Id, payout.BankAccountId);
         Assert.Equal(680m, payout.Amount);
         Assert.Equal("Pending", payout.Status);
-        Assert.Equal("Ozow", payout.Provider);
+        Assert.Equal("Paystack", payout.Provider);
         Assert.Equal("DFY-PAYOUT-DFY-3", payout.MerchantReference);
 
         Assert.Equal("released", refreshedTask.EscrowStatus);
@@ -214,44 +214,51 @@ private static AppDbContext CreateContext(string name)
         return new AppDbContext(options);
     }
 
-    private sealed class FakeOzowPaymentService : IOzowPaymentService
+    private sealed class FakePaystackPaymentProvider : IPaymentProvider
     {
-        public Task<OzowPaymentResult> CreatePaymentAsync(
+        public Task<PaymentCreationResult> CreatePaymentAsync(
             TaskEntity task,
             User customer,
             CancellationToken cancellationToken = default)
         {
             var reference = string.IsNullOrWhiteSpace(task.PaymentReference)
-                ? $"DFY-PAY-{task.TaskId}"
+                ? $"dfy_pay_{task.TaskId}".ToLowerInvariant()
                 : task.PaymentReference;
 
             return System.Threading.Tasks.Task.FromResult(
-                new OzowPaymentResult(
+                new PaymentCreationResult(
                     true,
-                    $"https://example.test/ozow/{reference}",
+                    $"https://checkout.paystack.test/{reference}",
                     reference,
                     null));
         }
 
-        public Task<OzowTransactionResult> GetTransactionByReferenceAsync(
+        public Task<PaymentVerificationResult> VerifyPaymentAsync(
             string transactionReference,
             CancellationToken cancellationToken = default)
         {
             return System.Threading.Tasks.Task.FromResult(
-                new OzowTransactionResult(
+                new PaymentVerificationResult(
                     true,
-                    "TEST-OZOW-TRANSACTION",
-                    "Complete",
-                    null,
+                    true,
+                    "TEST-PAYSTACK-TRANSACTION",
+                    "success",
+                    500m,
                     transactionReference,
                     null));
         }
 
-        public bool VerifyNotificationHash(
-            IReadOnlyDictionary<string, string?> fields)
+        public Task<RefundResult> CreateRefundAsync(
+            string transactionId,
+            decimal amount,
+            string reason,
+            CancellationToken cancellationToken = default)
         {
-            return true;
+            return System.Threading.Tasks.Task.FromResult(
+                new RefundResult(true, "REF-TEST", transactionId, amount, "processed", null));
         }
+
+        public bool VerifyWebhookSignature(string rawBody, string? signature) => true;
     }
 
     private static TasksController CreateTasksController(AppDbContext context, int userId)
@@ -271,7 +278,7 @@ private static AppDbContext CreateContext(string name)
             new EscrowService(context, NullLogger<EscrowService>.Instance),
             new NoOpNotificationService(),
             configuration,
-            new FakeOzowPaymentService());
+            new FakePaystackPaymentProvider());
 
         controller.ControllerContext = new ControllerContext
         {
