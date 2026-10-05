@@ -19,7 +19,7 @@ public class TasksController : ControllerBase
     private readonly IEscrowService _escrowService;
     private readonly INotificationService _notificationService;
     private readonly IConfiguration _configuration;
-    private readonly IOzowPaymentService _ozowPaymentService;
+    private readonly IPaymentProvider _paymentProvider;
     private readonly IUserPolicyService _userPolicyService;
 
     public TasksController(
@@ -28,7 +28,7 @@ public class TasksController : ControllerBase
         IEscrowService escrowService,
         INotificationService notificationService,
         IConfiguration configuration,
-        IOzowPaymentService ozowPaymentService,
+        IPaymentProvider paymentProvider,
         IUserPolicyService userPolicyService)
     {
         _context = context;
@@ -36,7 +36,7 @@ public class TasksController : ControllerBase
         _escrowService = escrowService;
         _notificationService = notificationService;
         _configuration = configuration;
-        _ozowPaymentService = ozowPaymentService;
+        _paymentProvider = paymentProvider;
         _userPolicyService = userPolicyService;
     }
 
@@ -105,11 +105,11 @@ public class TasksController : ControllerBase
             $"{user.FirstName} {user.LastName} created task {taskId} — R{request.Budget:F0} ({request.Category})",
             task.Id);
 
-        var payment = await _ozowPaymentService.CreatePaymentAsync(task, user, HttpContext.RequestAborted);
+        var payment = await _paymentProvider.CreatePaymentAsync(task, user, HttpContext.RequestAborted);
         if (!payment.Success || string.IsNullOrWhiteSpace(payment.PaymentUrl))
         {
             return StatusCode(StatusCodes.Status502BadGateway,
-                new ApiResponse<object> { Success = false, Message = payment.Error ?? "Unable to create Ozow payment request." });
+                new ApiResponse<object> { Success = false, Message = payment.Error ?? $"Unable to create {_paymentProvider.Name} payment request." });
         }
 
         task.PaymentReference = payment.TransactionReference;
@@ -121,7 +121,7 @@ public class TasksController : ControllerBase
                 PaymentId = $"DFY-PAY-{task.TaskId}",
                 TaskId = task.Id,
                 Amount = task.Budget,
-                PaymentMethod = "Ozow",
+                PaymentMethod = _paymentProvider.Name,
                 Status = "Pending",
                 CreatedAt = DateTime.UtcNow
             });
@@ -129,7 +129,7 @@ public class TasksController : ControllerBase
         else
         {
             paymentRecord.Amount = task.Budget;
-            paymentRecord.PaymentMethod = "Ozow";
+            paymentRecord.PaymentMethod = _paymentProvider.Name;
             paymentRecord.Status = "Pending";
         }
         await _context.SaveChangesAsync();
