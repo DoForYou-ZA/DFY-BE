@@ -437,6 +437,44 @@ public class AdminController : ControllerBase
     }
 
 
+    [HttpPatch("tasks/{taskId}/expire-confirmation")]
+    public async Task<ActionResult<ApiResponse<bool>>> ExpireConfirmation(string taskId, [FromBody] AdminActionReasonRequest request)
+    {
+        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        if (task == null)
+            return NotFound(new ApiResponse<bool> { Success = false, Data = false, Message = "Task not found" });
+
+        if (task.TaskStatus != "AwaitingConfirmation" ||
+            task.EscrowStatus != "held" ||
+            task.PaymentStatus != "EscrowHeld")
+        {
+            return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "Task is not awaiting creator confirmation." });
+        }
+
+        // Test/operations harness: backdate the same 24-hour deadline used by
+        // normal completion, then run the production auto-release service path.
+        task.EscrowHoldUntil = DateTime.UtcNow.AddMinutes(-1);
+        task.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        var released = await _escrowService.AutoReleaseExpiredEscrowsAsync();
+        await WriteAuditAsync(
+            "ExpireCreatorConfirmation",
+            "Task",
+            task.Id,
+            "AwaitingConfirmation",
+            $"AutoReleaseExpiredEscrows; released={released}; reason={request.Reason.Trim()}");
+
+        return Ok(new ApiResponse<bool>
+        {
+            Success = released > 0,
+            Data = released > 0,
+            Message = released > 0
+                ? "Creator confirmation expired and the runner payout was queued."
+                : "Creator confirmation was expired, but the escrow could not be released."
+        });
+    }
+
     [HttpPatch("tasks/{taskId}/force-release-escrow")]
     public async Task<ActionResult<ApiResponse<bool>>> ForceReleaseEscrow(string taskId, [FromBody] AdminActionReasonRequest request)
     {
