@@ -346,9 +346,9 @@ public class TasksController : ControllerBase
         else
         {
             paymentRecord.Amount = task.Budget;
-            paymentRecord.PaymentMethod = "Online",
-                Provider = "Paystack",
-                PaymentUrl = payment.PaymentUrl;
+            paymentRecord.PaymentMethod = "Online";
+            paymentRecord.Provider = "Paystack";
+            paymentRecord.PaymentUrl = payment.PaymentUrl;
             paymentRecord.Status = "Pending";
         }
         await _context.SaveChangesAsync();
