@@ -33,7 +33,7 @@ public class EscrowReleaseService : BackgroundService
                 _logger.LogError(ex, "Error in escrow release service");
             }
 
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
     }
 }
