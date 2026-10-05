@@ -382,7 +382,7 @@ public class TasksController : ControllerBase
             canEdit = task.CreatedByUserId == currentUserId && task.TaskStatus == "PendingPayment",
             canComplete = task.AcceptedByUserId == currentUserId && task.TaskStatus == "Claimed",
             canCancel = task.CreatedByUserId == currentUserId && task.TaskStatus == "PendingPayment",
-            canConfirm = task.CreatedByUserId == currentUserId && task.TaskStatus == "Completed",
+            canConfirm = task.CreatedByUserId == currentUserId && task.TaskStatus == "AwaitingConfirmation",
             canMessage = task.CreatedByUserId == currentUserId || task.AcceptedByUserId == currentUserId,
             canDispute = task.CreatedByUserId == currentUserId || task.AcceptedByUserId == currentUserId
         };
@@ -399,11 +399,13 @@ public class TasksController : ControllerBase
         if (task == null || task.AcceptedByUserId != userId || task.TaskStatus != "Claimed")
             return Ok(new ApiResponse<bool> { Success = false, Message = "Cannot complete task" });
 
-        task.TaskStatus = "Completed";
+        task.TaskStatus = "AwaitingConfirmation";
         task.PaymentStatus = "EscrowHeld";
         task.EscrowStatus = "held";
         task.CompletedAt = DateTime.UtcNow;
-        task.EscrowHoldUntil = DateTime.UtcNow.AddHours(48);
+        // The creator has 24 hours to confirm completion or raise a dispute.
+        // If there is no action, the background escrow service auto-releases payment.
+        task.EscrowHoldUntil = DateTime.UtcNow.AddHours(24);
         task.UpdatedAt = DateTime.UtcNow;
 
         var runner = await _context.Users.FindAsync(userId.Value);
@@ -419,7 +421,7 @@ public class TasksController : ControllerBase
         await _context.SaveChangesAsync();
 
         await _notificationService.NotifyTaskCompletedAsync(task.CreatedByUserId, task.TaskDescription, $"{runner?.FirstName} {runner?.LastName}");
-        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Task completed! Payment will be released after confirmation." });
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Task completed! You have 24 hours to confirm completion or raise a dispute. If you take no action, payment will be released automatically." });
     }
 
     [HttpPost("{taskId}/confirm")]
@@ -428,7 +430,7 @@ public class TasksController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
-        if (task == null || task.CreatedByUserId != userId || (task.TaskStatus != "Completed" && task.TaskStatus != "RunnerPaid"))
+        if (task == null || task.CreatedByUserId != userId || (task.TaskStatus != "AwaitingConfirmation" && task.TaskStatus != "RunnerPaid"))
             return Ok(new ApiResponse<bool> { Success = false, Message = "Cannot confirm task" });
         if (task.TaskStatus == "RunnerPaid")
             return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Payment already released" });
