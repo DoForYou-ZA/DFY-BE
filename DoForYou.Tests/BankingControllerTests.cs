@@ -72,7 +72,7 @@ public class BankingControllerTests
 
         Assert.True(response.Success);
 
-        // Server must use Ozow's canonical values.
+        // Server must use Paystack's canonical values.
         Assert.Equal("Canonical Bank", account.BankName);
         Assert.Equal("632005", account.BankCode);
         Assert.Equal("123456", account.BranchCode);
@@ -97,8 +97,8 @@ public class BankingControllerTests
         var banks = new FakePaystackBankProvider(
             new[]
             {
-                new OzowBank(
-                    "BANK-GROUP-123",
+                new SupportedBank(
+                    "632005",
                     "Canonical Bank",
                     "123456")
             });
@@ -159,7 +159,7 @@ public class BankingControllerTests
                     "Bank verification is temporarily unavailable.")
         };
 
-        var banks = new FakeOzowBankService(
+        var banks = new FakePaystackBankProvider(
             new[]
             {
                 new OzowBank(
@@ -306,7 +306,7 @@ public class BankingControllerTests
     {
         private readonly IReadOnlyList<SupportedBank> _banks;
 
-        public FakeOzowBankService(
+        public FakePaystackBankProvider(
             IReadOnlyList<SupportedBank> banks)
         {
             _banks = banks;
