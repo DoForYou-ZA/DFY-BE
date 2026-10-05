@@ -217,6 +217,36 @@ public class AdminController : ControllerBase
         });
     }
 
+    [HttpPost("tasks/{taskId}/expire-confirmation")]
+    public async Task<ActionResult<ApiResponse<bool>>> ExpireCreatorConfirmation(string taskId, [FromBody] AdminActionReasonRequest request)
+    {
+        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        if (task == null)
+            return NotFound(new ApiResponse<bool> { Success = false, Message = "Task not found" });
+
+        if (task.TaskStatus != "AwaitingConfirmation" || task.EscrowStatus != "held" || task.PaymentStatus != "EscrowHeld")
+            return Conflict(new ApiResponse<bool> { Success = false, Message = "Task is not awaiting creator confirmation." });
+
+        var previousDeadline = task.EscrowHoldUntil;
+        task.EscrowHoldUntil = DateTime.UtcNow.AddSeconds(-1);
+        task.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        await WriteAuditAsync(
+            "ExpireCreatorConfirmation",
+            "Task",
+            task.Id,
+            previousDeadline?.ToString("O"),
+            $"expired={task.EscrowHoldUntil:O}; reason={request.Reason.Trim()}");
+
+        return Ok(new ApiResponse<bool>
+        {
+            Success = true,
+            Data = true,
+            Message = "Creator confirmation window marked expired. The background escrow service will process the task."
+        });
+    }
+
     [HttpGet("payments")]
     public async Task<ActionResult<ApiResponse<object>>> GetPaymentsOverview()
     {
