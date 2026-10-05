@@ -174,16 +174,21 @@ builder.Services.AddCors(options =>
 });
 
 
-builder.Services.AddHttpClient("OzowPayment");
-builder.Services.AddScoped<IOzowPaymentService, OzowPaymentService>();
-builder.Services.AddHttpClient("OzowOne");
+builder.Configuration["Paystack:SecretKey"] =
+    Environment.GetEnvironmentVariable("PAYSTACK_SECRET_KEY")
+    ?? builder.Configuration["Paystack:SecretKey"];
 
-builder.Services.AddHttpClient("OzowPayout");
+builder.Configuration["Paystack:BaseUrl"] =
+    Environment.GetEnvironmentVariable("PAYSTACK_BASE_URL")
+    ?? builder.Configuration["Paystack:BaseUrl"]
+    ?? "https://api.paystack.co";
 
-builder.Services.AddScoped<OzowPayoutHashService>();
-builder.Services.AddScoped<IOzowPayoutService, OzowPayoutService>();
-builder.Services.AddScoped<IOzowBankService, OzowBankService>();
-builder.Services.AddHostedService<OzowPayoutProcessorService>();
+builder.Services.AddHttpClient("Paystack");
+builder.Services.AddSingleton<PaystackProvider>();
+builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<PaystackProvider>());
+builder.Services.AddSingleton<IPayoutProvider>(sp => sp.GetRequiredService<PaystackProvider>());
+builder.Services.AddSingleton<IBankProvider>(sp => sp.GetRequiredService<PaystackProvider>());
+builder.Services.AddHostedService<PayoutProcessorService>();
 
 var app = builder.Build();
 
