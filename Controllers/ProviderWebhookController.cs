@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
@@ -180,30 +181,6 @@ public sealed class ProviderWebhookController(
 
         await context.SaveChangesAsync(cancellationToken);
         return Ok();
-    }
-
-    [HttpGet("return")]
-    [AllowAnonymous]
-    public IActionResult PaymentReturn([FromQuery] string? taskId = null)
-    {
-        var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL")
-            ?? "https://do-for-you.vercel.app";
-        var url = string.IsNullOrWhiteSpace(taskId)
-            ? $"{frontendUrl}/payment/success"
-            : $"{frontendUrl}/payment/success?taskId={Uri.EscapeDataString(taskId)}";
-        return Redirect(url);
-    }
-
-    [HttpGet("cancel")]
-    [AllowAnonymous]
-    public IActionResult PaymentCancel([FromQuery] string? taskId = null)
-    {
-        var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL")
-            ?? "https://do-for-you.vercel.app";
-        var url = string.IsNullOrWhiteSpace(taskId)
-            ? $"{frontendUrl}/payment/cancelled"
-            : $"{frontendUrl}/payment/cancelled?taskId={Uri.EscapeDataString(taskId)}";
-        return Redirect(url);
     }
 
     private async Task HandleRefundWebhookAsync(
