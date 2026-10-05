@@ -307,7 +307,7 @@ public class TasksController : ControllerBase
     public async Task<ActionResult<ApiResponse<object>>> GetFilterOptions()
     {
         var categories = await _context.Categories.Select(c => c.Name).ToListAsync();
-        return Ok(new ApiResponse<object> { Success = true, Data = new { categories, statuses = new[] { "Posted", "Claimed", "Completed" } } });
+        return Ok(new ApiResponse<object> { Success = true, Data = new { categories, statuses = new[] { "Posted", "Claimed", "AwaitingConfirmation", "PayoutPending", "RunnerPaid", "Disputed" } } });
     }
 
     [HttpGet("{taskId}/payment-url")]
@@ -545,7 +545,7 @@ public class TasksController : ControllerBase
         var postedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId);
         var pendingPayment = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "PendingPayment");
         var creatorActiveTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && (t.TaskStatus == "Claimed" || t.TaskStatus == "PayoutPending"));
-        var awaitingConfirmation = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "Completed");
+        var awaitingConfirmation = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "AwaitingConfirmation");
         var creatorCompletedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "RunnerPaid");
 
         var totalSpent = await _context.Tasks.Where(t => t.CreatedByUserId == userId && t.TaskStatus == "RunnerPaid").SumAsync(t => t.Budget);
@@ -554,7 +554,7 @@ public class TasksController : ControllerBase
 
         var availableTasks = await _context.Tasks.CountAsync(t => t.TaskStatus == "Posted" && t.PaymentStatus == "EscrowHeld");
         var runnerActiveTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed");
-        var runnerCompletedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && (t.TaskStatus == "Completed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid"));
+        var runnerCompletedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && (t.TaskStatus == "AwaitingConfirmation" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid"));
 
         var completedPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && p.Status == "Completed").ToListAsync();
         var totalEarnings = completedPayouts.Sum(p => p.Amount);
