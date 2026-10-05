@@ -16,11 +16,13 @@ public class EscrowService : IEscrowService
 {
     private readonly AppDbContext _context;
     private readonly ILogger<EscrowService> _logger;
+    private readonly IPayoutProvider _payoutProvider;
 
-    public EscrowService(AppDbContext context, ILogger<EscrowService> logger)
+    public EscrowService(AppDbContext context, ILogger<EscrowService> logger, IPayoutProvider payoutProvider)
     {
         _context = context;
         _logger = logger;
+        _payoutProvider = payoutProvider;
     }
 
     public async Task<bool> ReleaseEscrowAsync(int taskId, bool force = false)
@@ -101,7 +103,7 @@ public class EscrowService : IEscrowService
                 BankAccountId = bankAccount.Id,
                 Amount = task.PayoutAmount,
                 Status = "Pending",
-                Provider = "Ozow",
+                Provider = _payoutProvider.Name,
                 MerchantReference = merchantReference,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
