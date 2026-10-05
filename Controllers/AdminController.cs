@@ -454,6 +454,34 @@ public class AdminController : ControllerBase
             return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "Task is not awaiting creator confirmation." });
         }
 
+        // In E2E mode only, seed the minimum verified payout prerequisite so the
+        // production escrow release path can be exercised without an external bank/Ozow call.
+        if (task.AcceptedByUserId.HasValue)
+        {
+            var testBankAccount = await _context.BankAccounts
+                .FirstOrDefaultAsync(b => b.UserId == task.AcceptedByUserId.Value && b.IsActive && b.IsVerified);
+
+            if (testBankAccount == null)
+            {
+                testBankAccount = new Models.BankAccount
+                {
+                    UserId = task.AcceptedByUserId.Value,
+                    BankName = "DFY E2E Test Bank",
+                    BankGroupId = "DFY-E2E",
+                    AccountNumber = "0000000000",
+                    AccountHolderName = task.AcceptedByUser?.FirstName + " " + task.AcceptedByUser?.LastName,
+                    BranchCode = "000000",
+                    AccountType = "Savings",
+                    IsVerified = true,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    VerifiedAt = DateTime.UtcNow
+                };
+                _context.BankAccounts.Add(testBankAccount);
+                await _context.SaveChangesAsync();
+            }
+        }
+
         // Test/operations harness: backdate the same 24-hour deadline used by
         // normal completion, then run the production auto-release service path.
         task.EscrowHoldUntil = DateTime.UtcNow.AddMinutes(-1);
