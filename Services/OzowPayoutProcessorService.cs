@@ -46,6 +46,15 @@ public class OzowPayoutProcessorService(
     private async Task ProcessPendingPayoutsAsync(
         CancellationToken cancellationToken)
     {
+        // Staging E2E mode must exercise escrow release and payout queuing
+        // without submitting any payout to Ozow. The payout record remains
+        // Pending so the E2E can assert the exact hand-off state.
+        if (string.Equals(Environment.GetEnvironmentVariable("DFY_E2E_TEST_MODE"), "true", StringComparison.OrdinalIgnoreCase))
+        {
+            logger.LogInformation("DFY E2E test mode enabled; skipping Ozow payout submission.");
+            return;
+        }
+
         using var scope =
             scopeFactory.CreateScope();
 
