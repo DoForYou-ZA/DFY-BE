@@ -142,6 +142,8 @@ public class TaskDto
     public string Priority { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
     public DateTime? CompletedAt { get; set; }
+    public DateTime? EscrowHoldUntil { get; set; }
+    public string PayoutStatus { get; set; } = string.Empty;
     public bool CanAccept { get; set; } = true;
     
     // Additional fields for frontend compatibility
