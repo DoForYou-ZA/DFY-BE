@@ -222,7 +222,7 @@ public class TasksController : ControllerBase
                 TaskDescription = t.TaskDescription, Category = t.Category, Area = t.Area, DateNeeded = t.DateNeeded,
                 Budget = t.Budget, PayoutAmount = t.PayoutAmount, Notes = t.Notes, PaymentStatus = t.PaymentStatus, TaskStatus = t.TaskStatus,
                 HelperName = t.HelperName, HelperContact = t.HelperContact, Priority = t.Priority,
-                CreatedAt = t.CreatedAt, CompletedAt = t.CompletedAt
+                CreatedAt = t.CreatedAt, CompletedAt = t.CompletedAt, EscrowHoldUntil = t.EscrowHoldUntil, PayoutStatus = t.PayoutStatus
             }).ToListAsync();
 
         var response = new PaginatedResponse<TaskDto> { Success = true, Count = tasks.Count, Page = 1, PageSize = tasks.Count, TotalPages = 1, Tasks = tasks };
