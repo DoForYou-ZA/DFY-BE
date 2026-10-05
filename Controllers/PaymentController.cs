@@ -303,7 +303,7 @@ public class PaymentController : ControllerBase
             ?? "https://do-for-you.vercel.app").TrimEnd('/');
 
         var redirect = string.IsNullOrEmpty(taskId)
-            ? $"{frontendUrl}/payment/success"
+            ? $"{frontendUrl}/payments/success"
             : $"{frontendUrl}/payment/success?taskId={Uri.EscapeDataString(taskId)}";
 
         return Redirect(redirect);
@@ -319,7 +319,7 @@ public class PaymentController : ControllerBase
             ?? "https://do-for-you.vercel.app").TrimEnd('/');
 
         var redirect = string.IsNullOrEmpty(taskId)
-            ? $"{frontendUrl}/payment/cancelled"
+            ? $"{frontendUrl}/payments/cancelled"
             : $"{frontendUrl}/payment/cancelled?taskId={Uri.EscapeDataString(taskId)}";
 
         return Redirect(redirect);
