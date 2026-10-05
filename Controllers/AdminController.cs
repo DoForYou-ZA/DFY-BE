@@ -440,6 +440,9 @@ public class AdminController : ControllerBase
     [HttpPatch("tasks/{taskId}/expire-confirmation")]
     public async Task<ActionResult<ApiResponse<bool>>> ExpireConfirmation(string taskId, [FromBody] AdminActionReasonRequest request)
     {
+        if (!string.Equals(Environment.GetEnvironmentVariable("DFY_E2E_TEST_MODE"), "true", StringComparison.OrdinalIgnoreCase))
+            return NotFound();
+
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
         if (task == null)
             return NotFound(new ApiResponse<bool> { Success = false, Data = false, Message = "Task not found" });
