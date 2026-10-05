@@ -19,7 +19,7 @@ public class TasksController : ControllerBase
     private readonly IEscrowService _escrowService;
     private readonly INotificationService _notificationService;
     private readonly IConfiguration _configuration;
-    private readonly IOzowPaymentService _paymentProvider;
+    private readonly IPaymentProvider _paymentProvider;
     private readonly IUserPolicyService _userPolicyService;
 
     public TasksController(
@@ -36,7 +36,7 @@ public class TasksController : ControllerBase
         _escrowService = escrowService;
         _notificationService = notificationService;
         _configuration = configuration;
-        _paymentProvider = ozowPaymentService;
+        _paymentProvider = paymentProvider;
         _userPolicyService = userPolicyService;
     }
 
@@ -131,9 +131,9 @@ public class TasksController : ControllerBase
         else
         {
             paymentRecord.Amount = task.Budget;
-            paymentRecord.PaymentMethod = "Online",
-                Provider = "Paystack",
-                PaymentUrl = payment.PaymentUrl;
+            paymentRecord.PaymentMethod = "Online";
+            paymentRecord.Provider = "Paystack";
+            paymentRecord.PaymentUrl = payment.PaymentUrl;
             paymentRecord.Status = "Pending";
         }
         await _context.SaveChangesAsync();
