@@ -17,6 +17,20 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DOTNET_HOSTBUI
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Configuration["Payments:Provider"] =
+    Environment.GetEnvironmentVariable("DFY_PAYMENT_PROVIDER")
+    ?? builder.Configuration["Payments:Provider"]
+    ?? "Paystack";
+
+builder.Configuration["Paystack:SecretKey"] =
+    Environment.GetEnvironmentVariable("PAYSTACK_SECRET_KEY")
+    ?? builder.Configuration["Paystack:SecretKey"];
+
+builder.Configuration["Paystack:BaseUrl"] =
+    Environment.GetEnvironmentVariable("PAYSTACK_BASE_URL")
+    ?? builder.Configuration["Paystack:BaseUrl"]
+    ?? "https://api.paystack.co";
+
 builder.Configuration["Ozow:SiteCode"] =
     Environment.GetEnvironmentVariable("OZOW_SITE_CODE")
     ?? builder.Configuration["Ozow:SiteCode"];
@@ -174,6 +188,10 @@ builder.Services.AddCors(options =>
 });
 
 
+builder.Services.AddHttpClient("Paystack");
+builder.Services.AddScoped<IPaymentProvider, PaystackPaymentProvider>();
+builder.Services.AddScoped<IPayoutProvider, PaystackPayoutProvider>();
+builder.Services.AddScoped<IBankProvider, PaystackBankProvider>();
 builder.Services.AddHttpClient("OzowPayment");
 builder.Services.AddScoped<IOzowPaymentService, OzowPaymentService>();
 builder.Services.AddHttpClient("OzowOne");
@@ -183,7 +201,7 @@ builder.Services.AddHttpClient("OzowPayout");
 builder.Services.AddScoped<OzowPayoutHashService>();
 builder.Services.AddScoped<IOzowPayoutService, OzowPayoutService>();
 builder.Services.AddScoped<IOzowBankService, OzowBankService>();
-builder.Services.AddHostedService<OzowPayoutProcessorService>();
+builder.Services.AddHostedService<PayoutProcessorService>();
 
 var app = builder.Build();
 
