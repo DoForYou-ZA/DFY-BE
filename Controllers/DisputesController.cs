@@ -183,7 +183,7 @@ public class DisputesController : ControllerBase
         {
             // Re-open the escrow hold for the release service, then create the normal
             // idempotent Paystack payout. The payout processor will only mark the runner paid
-            // after Paystack confirms status 5.
+            // after Paystack confirms a successful transfer.
             task.EscrowStatus = "held";
             task.PaymentStatus = "EscrowHeld";
             task.EscrowHoldUntil = DateTime.UtcNow.AddSeconds(-1);
