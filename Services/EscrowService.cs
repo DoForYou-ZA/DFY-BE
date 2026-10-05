@@ -35,8 +35,8 @@ public class EscrowService : IEscrowService
             if (task == null || task.AcceptedByUserId == null) return false;
             if (task.EscrowStatus != "held" && task.PaymentStatus != "EscrowHeld") return false;
 
-            // Poster confirmation is an explicit release instruction and must bypass the
-            // normal 48-hour auto-release hold. Automatic release still honours the hold.
+            // Creator confirmation is an explicit release instruction and may bypass the
+            // 24-hour creator response window. Automatic release honours the deadline.
             if (!force && task.EscrowHoldUntil.HasValue && task.EscrowHoldUntil > DateTime.UtcNow)
                 return false;
 
