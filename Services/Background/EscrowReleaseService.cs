@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using DoForYou.API.Services;
 
 namespace DoForYou.API.Services.Background;
@@ -23,17 +24,48 @@ public class EscrowReleaseService : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var escrowService = scope.ServiceProvider.GetRequiredService<IEscrowService>();
-                var count = await escrowService.AutoReleaseExpiredEscrowsAsync();
-                
+                var notificationService = scope.ServiceProvider.GetRequiredService<INotificationService>();
+                var db = scope.ServiceProvider.GetRequiredService<DoForYou.API.Data.AppDbContext>();
+                var expiredTasks = await db.Tasks
+                    .Where(t => t.TaskStatus == "AwaitingConfirmation" &&
+                                t.EscrowStatus == "held" &&
+                                t.PaymentStatus == "EscrowHeld" &&
+                                t.EscrowHoldUntil.HasValue &&
+                                t.EscrowHoldUntil <= DateTime.UtcNow)
+                    .ToListAsync(stoppingToken);
+
+                var count = 0;
+                foreach (var task in expiredTasks)
+                {
+                    if (!await escrowService.ReleaseEscrowAsync(task.Id))
+                        continue;
+
+                    count++;
+                    if (task.AcceptedByUserId.HasValue)
+                    {
+                        await notificationService.NotifyPaymentReleasedAsync(
+                            task.AcceptedByUserId.Value,
+                            task.TaskDescription,
+                            task.PayoutAmount);
+                    }
+
+                    await notificationService.CreateNotificationAsync(
+                        task.CreatedByUserId,
+                        "task_auto_confirmed",
+                        "Task Automatically Confirmed",
+                        $"No confirmation or dispute was received within 24 hours for task {task.TaskId}. The task was automatically confirmed and the runner payout was initiated.",
+                        task.Id);
+                }
+
                 if (count > 0)
-                    _logger.LogInformation("Released {Count} expired escrows", count);
+                    _logger.LogInformation("Automatically confirmed and released {Count} expired creator confirmations", count);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in escrow release service");
             }
 
-            await Task.Delay(TimeSpan.FromHours(1), stoppingToken);
+            await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
     }
 }

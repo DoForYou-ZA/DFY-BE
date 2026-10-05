@@ -33,12 +33,37 @@ public class EscrowService : IEscrowService
         {
             var task = await _context.Tasks.Include(t => t.AcceptedByUser).FirstOrDefaultAsync(t => t.Id == taskId);
             if (task == null || task.AcceptedByUserId == null) return false;
-            if (task.EscrowStatus != "held" && task.PaymentStatus != "EscrowHeld") return false;
+            if (task.EscrowStatus != "held" || task.PaymentStatus != "EscrowHeld") return false;
 
-            // Poster confirmation is an explicit release instruction and must bypass the
-            // normal 48-hour auto-release hold. Automatic release still honours the hold.
-            if (!force && task.EscrowHoldUntil.HasValue && task.EscrowHoldUntil > DateTime.UtcNow)
+            // Only one confirmation path may claim the AwaitingConfirmation row.
+            // ExecuteUpdate makes the state transition conditional in the database,
+            // so a creator confirmation and the 24-hour worker cannot both win.
+            if (task.TaskStatus == "RunnerPaid")
+                return true;
+
+            if (task.TaskStatus != "AwaitingConfirmation")
                 return false;
+
+            if (!force && (!task.EscrowHoldUntil.HasValue || task.EscrowHoldUntil > DateTime.UtcNow))
+                return false;
+
+            var claimed = await _context.Tasks
+                .Where(t => t.Id == task.Id &&
+                            t.TaskStatus == "AwaitingConfirmation" &&
+                            t.EscrowStatus == "held" &&
+                            t.PaymentStatus == "EscrowHeld" &&
+                            (force || (t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow)))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.TaskStatus, "PayoutPending")
+                    .SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
+
+            if (claimed != 1)
+                return false;
+
+            // Refresh the tracked task after the atomic state claim.
+            _context.ChangeTracker.Clear();
+            task = await _context.Tasks.Include(t => t.AcceptedByUser).FirstOrDefaultAsync(t => t.Id == taskId);
+            if (task == null || task.AcceptedByUserId == null) return false;
 
             // Keep active/processing/completed payout records idempotent. A terminal
             // Failed/Returned payout is historical and may be followed by a new
@@ -107,7 +132,7 @@ public class EscrowService : IEscrowService
 
     public async Task<int> AutoReleaseExpiredEscrowsAsync()
     {
-        var expiredTasks = await _context.Tasks.Where(t => t.EscrowStatus == "held" && t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow).ToListAsync();
+        var expiredTasks = await _context.Tasks.Where(t => t.TaskStatus == "AwaitingConfirmation" && t.EscrowStatus == "held" && t.PaymentStatus == "EscrowHeld" && t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow).ToListAsync();
         int count = 0;
         foreach (var task in expiredTasks)
             if (await ReleaseEscrowAsync(task.Id)) count++;
