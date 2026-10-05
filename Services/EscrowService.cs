@@ -107,7 +107,7 @@ public class EscrowService : IEscrowService
 
     public async Task<int> AutoReleaseExpiredEscrowsAsync()
     {
-        var expiredTasks = await _context.Tasks.Where(t => t.EscrowStatus == "held" && t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow).ToListAsync();
+        var expiredTasks = await _context.Tasks.Where(t => t.TaskStatus == "AwaitingConfirmation" && t.EscrowStatus == "held" && t.PaymentStatus == "EscrowHeld" && t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow).ToListAsync();
         int count = 0;
         foreach (var task in expiredTasks)
             if (await ReleaseEscrowAsync(task.Id)) count++;
