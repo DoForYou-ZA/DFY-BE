@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
@@ -13,7 +14,7 @@ namespace DoForYou.API.Migrations
                 columns: table => new
                 {
                     Id = table.Column<int>(type: "integer", nullable: false)
-                        .Annotation("Npgsql:ValueGenerationStrategy", Npgsql.EntityFrameworkCore.PostgreSQL.ValueGenerationStrategy.IdentityByDefaultColumn),
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
                     TaskId = table.Column<int>(type: "integer", nullable: false),
                     Provider = table.Column<string>(type: "text", nullable: false),
                     Reference = table.Column<string>(type: "text", nullable: false),
