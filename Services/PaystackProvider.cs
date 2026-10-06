@@ -426,11 +426,12 @@ public sealed class PaystackProvider(
 
             if (!response.IsSuccessStatusCode || !GetBool(root, "status"))
             {
+                var message = GetString(root, "message") ?? $"Paystack transfer failed ({(int)response.StatusCode}).";
                 var retryable = (int)response.StatusCode >= 500 ||
                                 (int)response.StatusCode == 408 ||
-                                (int)response.StatusCode == 429;
-                return new(false, null, retryable,
-                    GetString(root, "message") ?? $"Paystack transfer failed ({(int)response.StatusCode}).");
+                                (int)response.StatusCode == 429 ||
+                                IsInsufficientBalanceError(message);
+                return new(false, null, retryable, message);
             }
 
             var data = root.GetProperty("data");
@@ -489,6 +490,12 @@ public sealed class PaystackProvider(
             return new(false, false, null, null, "Unable to reconcile Paystack payout.");
         }
     }
+
+    private static bool IsInsufficientBalanceError(string message) =>
+        (message.Contains("balance", StringComparison.OrdinalIgnoreCase) &&
+         (message.Contains("not enough", StringComparison.OrdinalIgnoreCase) ||
+          message.Contains("insufficient", StringComparison.OrdinalIgnoreCase))) ||
+        message.Contains("insufficient balance", StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizePaymentReference(string reference)
     {
