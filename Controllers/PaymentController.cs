@@ -126,7 +126,13 @@ public class PaymentController : ControllerBase
         if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
             return BadRequest();
 
+        var paymentAttempt = await _context.PaymentAttempts
+            .FirstOrDefaultAsync(p => p.Provider == "Paystack" && p.Reference == reference);
+
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.PaymentReference == reference);
+        if (task == null && paymentAttempt != null)
+            task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == paymentAttempt.TaskId);
+
         if (task == null)
         {
             _logger.LogWarning("Paystack charge.success received for unknown reference {Reference}.", reference);
@@ -159,16 +165,67 @@ public class PaymentController : ControllerBase
             return BadRequest();
         }
 
+        var tx = transactionId ?? verified.TransactionId;
+
+        if (paymentAttempt != null)
+        {
+            var priorCompleted = await _context.PaymentAttempts
+                .AnyAsync(p =>
+                    p.TaskId == task.Id &&
+                    p.Status == "Completed" &&
+                    p.TransactionId != null &&
+                    p.TransactionId != tx);
+
+            if (priorCompleted)
+            {
+                paymentAttempt.Status = "Duplicate";
+                paymentAttempt.TransactionId = tx;
+                paymentAttempt.FailureReason = "Another successful Paystack payment already activated this task.";
+                paymentAttempt.CompletedAt = DateTime.UtcNow;
+                paymentAttempt.FailureReason = "Duplicate successful payment requires admin review/refund.";
+                _context.AuditLogs.Add(new Models.AuditLog
+                {
+                    UserId = null,
+                    Action = "PaystackDuplicatePaymentDetected",
+                    EntityType = "Task",
+                    EntityId = task.Id,
+                    NewValues = $"transactionId={tx}; transactionReference={reference}; amount={expectedAmount:F2}",
+                    IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+                    UserAgent = Request.Headers.UserAgent.ToString()
+                });
+                await _context.SaveChangesAsync();
+                return Ok();
+            }
+
+            paymentAttempt.Status = "Completed";
+            paymentAttempt.TransactionId = tx;
+            paymentAttempt.CompletedAt ??= DateTime.UtcNow;
+            paymentAttempt.FailureReason = null;
+        }
+
         var payment = await _context.Payments.FirstOrDefaultAsync(p => p.TaskId == task.Id);
-        if (payment != null)
+        if (payment == null)
+        {
+            _context.Payments.Add(new Models.Payment
+            {
+                PaymentId = $"DFY-PAY-{task.TaskId}",
+                TaskId = task.Id,
+                Amount = task.Budget,
+                PaymentMethod = "Online",
+                Provider = "Paystack",
+                Status = "Completed",
+                TransactionId = tx,
+                CreatedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow
+            });
+        }
+        else
         {
             payment.Provider = "Paystack";
-            payment.TransactionId = transactionId ?? verified.TransactionId;
+            payment.TransactionId = tx;
             payment.Status = "Completed";
             payment.CompletedAt ??= DateTime.UtcNow;
         }
-
-        var tx = transactionId ?? verified.TransactionId;
         if (!string.IsNullOrWhiteSpace(tx))
         {
             var alreadyAudited = await _context.AuditLogs.AnyAsync(a =>
