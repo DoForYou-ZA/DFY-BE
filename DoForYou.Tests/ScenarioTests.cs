@@ -291,15 +291,24 @@ public class ScenarioTests
         Assert.Equal(2, postedResponse.Data.Page);
         Assert.Equal(3, postedResponse.Data.TotalPages);
         Assert.Equal(5, postedResponse.Data.Tasks.Count);
+        Assert.Equal(12, postedResponse.Data.StatusCounts!["all"]);
+        Assert.Equal(12, postedResponse.Data.StatusCounts["claimed"]);
 
         var linkedResult = await controller.GetMyPostedTasks(
             page: 1,
             pageSize: 5,
-            taskId: "DFY-ACTIVE-12");
+            taskId: "DFY-ACTIVE-12",
+            status: "claimed");
         var linkedResponse = Assert.IsType<ApiResponse<PaginatedResponse<TaskDto>>>(
             Assert.IsType<OkObjectResult>(linkedResult.Result).Value);
         Assert.Equal(3, linkedResponse.Data!.Page);
         Assert.Contains(linkedResponse.Data.Tasks, task => task.TaskId == "DFY-ACTIVE-12");
+
+        var emptyStatusResult = await controller.GetMyPostedTasks(status: "posted");
+        var emptyStatusResponse = Assert.IsType<ApiResponse<PaginatedResponse<TaskDto>>>(
+            Assert.IsType<OkObjectResult>(emptyStatusResult.Result).Value);
+        Assert.Equal(0, emptyStatusResponse.Data!.Count);
+        Assert.Equal(12, emptyStatusResponse.Data.StatusCounts!["all"]);
 
         var activeController = CreateTasksController(context, runner.Id);
         var activeResult = await activeController.GetMyActiveTasks(page: 20, pageSize: 5);

@@ -239,15 +239,66 @@ public class TasksController : ControllerBase
     public async Task<ActionResult<ApiResponse<PaginatedResponse<TaskDto>>>> GetMyPostedTasks(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
-        [FromQuery] string? taskId = null)
+        [FromQuery] string? taskId = null,
+        [FromQuery] string? status = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
-        var query = _context.Tasks
+        var allTasksQuery = _context.Tasks
             .Where(t => t.CreatedByUserId == userId);
+        var normalizedStatus = status?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrEmpty(normalizedStatus) &&
+            normalizedStatus != "all" &&
+            normalizedStatus != "pendingpayment" &&
+            normalizedStatus != "posted" &&
+            normalizedStatus != "claimed" &&
+            normalizedStatus != "completed" &&
+            normalizedStatus != "runnerpaid")
+            return BadRequest(new ApiResponse<PaginatedResponse<TaskDto>>
+            {
+                Success = false,
+                Message = "Unsupported task status filter."
+            });
+
+        var query = normalizedStatus switch
+        {
+            "pendingpayment" => allTasksQuery.Where(t => t.TaskStatus == "PendingPayment"),
+            "posted" => allTasksQuery.Where(t => t.TaskStatus == "Posted"),
+            "claimed" => allTasksQuery.Where(t => t.TaskStatus == "Claimed" || t.TaskStatus == "InProgress" || t.TaskStatus == "In_Progress"),
+            "completed" => allTasksQuery.Where(t => t.TaskStatus == "AwaitingConfirmation"),
+            "runnerpaid" => allTasksQuery.Where(t => t.TaskStatus == "RunnerPaid" || t.TaskStatus == "Confirmed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "Completed"),
+            _ => allTasksQuery
+        };
+        var statusGroups = await allTasksQuery
+            .GroupBy(t => t.TaskStatus)
+            .Select(group => new { Status = group.Key, Count = group.Count() })
+            .ToListAsync();
+        var statusCounts = new Dictionary<string, int>
+        {
+            ["all"] = statusGroups.Sum(group => group.Count),
+            ["pendingPayment"] = 0,
+            ["posted"] = 0,
+            ["claimed"] = 0,
+            ["completed"] = 0,
+            ["runnerPaid"] = 0
+        };
+        foreach (var group in statusGroups)
+        {
+            var category = group.Status.ToLowerInvariant().Replace("_", string.Empty).Replace("-", string.Empty).Replace(" ", string.Empty) switch
+            {
+                "pendingpayment" => "pendingPayment",
+                "posted" => "posted",
+                "claimed" or "inprogress" => "claimed",
+                "awaitingconfirmation" => "completed",
+                "runnerpaid" or "confirmed" or "payoutpending" or "completed" => "runnerPaid",
+                _ => null
+            };
+            if (category != null)
+                statusCounts[category] += group.Count;
+        }
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
@@ -282,7 +333,7 @@ public class TasksController : ControllerBase
                 CreatedAt = t.CreatedAt, CompletedAt = t.CompletedAt, EscrowHoldUntil = t.EscrowHoldUntil, PayoutStatus = t.PayoutStatus
             }).ToListAsync();
 
-        var response = new PaginatedResponse<TaskDto> { Success = true, Count = totalCount, Page = page, PageSize = pageSize, TotalPages = totalPages, Tasks = tasks };
+        var response = new PaginatedResponse<TaskDto> { Success = true, Count = totalCount, Page = page, PageSize = pageSize, TotalPages = totalPages, Tasks = tasks, StatusCounts = statusCounts };
         return Ok(new ApiResponse<PaginatedResponse<TaskDto>> { Success = true, Data = response });
     }
 

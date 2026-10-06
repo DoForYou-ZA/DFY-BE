@@ -187,6 +187,7 @@ public class PaginatedResponse<T>
     public int PageSize { get; set; }
     public int TotalPages { get; set; }
     public List<T> Tasks { get; set; } = new();
+    public Dictionary<string, int>? StatusCounts { get; set; }
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 
