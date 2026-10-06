@@ -14,6 +14,8 @@ Do not commit Paystack keys to Git.
 
 ## Paystack Dashboard
 
+For staging, switch the Paystack Dashboard to **Test Mode**. Test and live webhook configuration are separate, so configure the webhook while Test Mode is selected.
+
 Configure the webhook URL for the same Paystack environment as the secret key:
 
 `https://<BACKEND_URL_HOST>/api/v1/payment/webhook`
@@ -60,6 +62,29 @@ Creator:
 Runner:
 
 `Complete task -> creator confirms OR 24h expiry -> DFY creates Pending payout -> Paystack transfer -> transfer.success -> RunnerPaid`
+
+## Test checkout
+
+Use Paystack's documented test payment details in Test Mode. The successful reusable test card is:
+- Number: 4084 0840 8408 4081
+- Expiry: any future date
+- CVV: 408
+
+Paystack documents that test transfers return success because they are simulated, so staging can exercise the DFY payout lifecycle without moving real money.
+
+Run the DFY staging test as:
+
+1. Creator creates a task.
+2. DFY redirects the creator to Paystack Checkout.
+3. Complete the test payment.
+4. Paystack sends charge.success to /api/v1/payment/webhook.
+5. DFY independently verifies the transaction and moves the task to Posted / EscrowHeld.
+6. Runner accepts and completes the task.
+7. Creator confirms or the 24-hour window expires.
+8. DFY creates the Paystack transfer.
+9. Paystack confirms the transfer and DFY moves the task to RunnerPaid.
+
+Every Paystack payment attempt uses a unique transaction reference. Pending tasks generate a new reference whenever the creator starts checkout again; webhook reconciliation uses the payment-attempt record instead of relying only on the task's latest reference.
 
 ## Safety
 
