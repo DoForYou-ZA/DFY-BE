@@ -175,7 +175,9 @@ public class AdminController : ControllerBase
     [HttpPatch("tasks/{taskId}/verify")]
     public async Task<ActionResult<ApiResponse<bool>>> VerifyTask(string taskId, [FromBody] AdminActionReasonRequest request)
     {
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        var task = await _context.Tasks
+            .Include(t => t.AcceptedByUser)
+            .FirstOrDefaultAsync(t => t.TaskId == taskId);
         if (task == null)
             return NotFound(new ApiResponse<bool> { Success = false, Message = "Task not found" });
 
