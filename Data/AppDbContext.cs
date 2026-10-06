@@ -74,7 +74,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PaymentAttempt>()
             .HasIndex(p => p.TransactionId)
             .IsUnique()
-            .HasFilter(""TransactionId" IS NOT NULL");
+            .HasFilter("\"TransactionId\" IS NOT NULL");
 
         modelBuilder.Entity<PaymentAttempt>()
             .HasOne(p => p.Task)
