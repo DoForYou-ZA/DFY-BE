@@ -236,12 +236,42 @@ public class TasksController : ControllerBase
     }
 
     [HttpGet("my-posted")]
-    public async Task<ActionResult<ApiResponse<PaginatedResponse<TaskDto>>>> GetMyPostedTasks()
+    public async Task<ActionResult<ApiResponse<PaginatedResponse<TaskDto>>>> GetMyPostedTasks(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? taskId = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var tasks = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.CreatedByUserId == userId).OrderByDescending(t => t.CreatedAt)
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        var query = _context.Tasks
+            .Where(t => t.CreatedByUserId == userId);
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            var target = await query
+                .Where(t => t.TaskId == taskId)
+                .Select(t => new { t.Id, t.CreatedAt })
+                .FirstOrDefaultAsync();
+            if (target != null)
+            {
+                var tasksBeforeTarget = await query.CountAsync(t =>
+                    t.CreatedAt > target.CreatedAt ||
+                    (t.CreatedAt == target.CreatedAt && t.Id > target.Id));
+                page = tasksBeforeTarget / pageSize + 1;
+            }
+        }
+        page = Math.Min(page, Math.Max(totalPages, 1));
+
+        var tasks = await query.Include(t => t.CreatedByUser)
+            .OrderByDescending(t => t.CreatedAt)
+            .ThenByDescending(t => t.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
             .Select(t => new TaskDto
             {
                 Id = t.Id, TaskId = t.TaskId, TaskName = t.TaskName, UserName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}",
@@ -252,7 +282,7 @@ public class TasksController : ControllerBase
                 CreatedAt = t.CreatedAt, CompletedAt = t.CompletedAt, EscrowHoldUntil = t.EscrowHoldUntil, PayoutStatus = t.PayoutStatus
             }).ToListAsync();
 
-        var response = new PaginatedResponse<TaskDto> { Success = true, Count = tasks.Count, Page = 1, PageSize = tasks.Count, TotalPages = 1, Tasks = tasks };
+        var response = new PaginatedResponse<TaskDto> { Success = true, Count = totalCount, Page = page, PageSize = pageSize, TotalPages = totalPages, Tasks = tasks };
         return Ok(new ApiResponse<PaginatedResponse<TaskDto>> { Success = true, Data = response });
     }
 
@@ -523,13 +553,62 @@ public class TasksController : ControllerBase
     }
 
     [HttpGet("my-active")]
-    public async Task<ActionResult<ApiResponse<List<object>>>> GetMyActiveTasks()
+    public async Task<ActionResult<ApiResponse<object>>> GetMyActiveTasks(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? taskId = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var tasks = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed").OrderByDescending(t => t.UpdatedAt)
-            .Select(t => new { id = t.Id, taskId = t.TaskId, title = t.TaskDescription, description = t.TaskDescription, category = t.Category, location = t.Area, budget = t.Budget, status = t.TaskStatus.ToLower(), createdAt = t.CreatedAt, dueDate = t.DateNeeded, creatorName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}", creatorContact = t.CreatedByUser.PhoneNumber ?? t.CreatedByUser.Email }).Cast<object>().ToListAsync();
-        return Ok(new ApiResponse<List<object>> { Success = true, Data = tasks, Message = "Active tasks retrieved successfully" });
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+        var query = _context.Tasks
+            .Where(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed");
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            var target = await query
+                .Where(t => t.TaskId == taskId)
+                .Select(t => new { t.Id, t.UpdatedAt })
+                .FirstOrDefaultAsync();
+            if (target != null)
+            {
+                var tasksBeforeTarget = await query.CountAsync(t =>
+                    t.UpdatedAt > target.UpdatedAt ||
+                    (t.UpdatedAt == target.UpdatedAt && t.Id > target.Id));
+                page = tasksBeforeTarget / pageSize + 1;
+            }
+        }
+        page = Math.Min(page, Math.Max(totalPages, 1));
+        var tasks = await query
+            .OrderByDescending(t => t.UpdatedAt)
+            .ThenByDescending(t => t.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(t => new
+            {
+                id = t.Id,
+                taskId = t.TaskId,
+                title = t.TaskDescription,
+                description = t.TaskDescription,
+                category = t.Category,
+                location = t.Area,
+                budget = t.Budget,
+                payoutAmount = t.PayoutAmount,
+                status = t.TaskStatus.ToLower(),
+                createdAt = t.CreatedAt,
+                dueDate = t.DateNeeded,
+                creatorName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}",
+                creatorContact = t.CreatedByUser.PhoneNumber ?? t.CreatedByUser.Email
+            })
+            .ToListAsync();
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new { tasks, count = totalCount, page, pageSize, totalPages },
+            Message = "Active tasks retrieved successfully"
+        });
     }
 
     [HttpGet]

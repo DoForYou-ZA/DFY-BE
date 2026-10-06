@@ -255,6 +255,76 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task MyPostedAndActiveTasks_ReturnPagesAndFindLinkedPostedTaskPage()
+    {
+        using var context = CreateContext(nameof(MyPostedAndActiveTasks_ReturnPagesAndFindLinkedPostedTaskPage));
+        var creator = CreateUser(1, "creator", true, "creator@test.com");
+        var runner = CreateUser(2, "runner", true, "runner@test.com");
+        context.Users.AddRange(creator, runner);
+        for (var index = 1; index <= 12; index++)
+        {
+            context.Tasks.Add(new TaskEntity
+            {
+                TaskId = $"DFY-ACTIVE-{index}",
+                TaskName = $"Task {index}",
+                TaskDescription = $"Active task {index}",
+                Category = "Other",
+                Area = "Pretoria",
+                DateNeeded = DateTime.UtcNow.AddDays(1),
+                Budget = 200m,
+                PayoutAmount = 170m,
+                PaymentStatus = "EscrowHeld",
+                TaskStatus = "Claimed",
+                CreatedByUserId = creator.Id,
+                AcceptedByUserId = runner.Id,
+                CreatedAt = DateTime.UtcNow.AddDays(-index),
+                UpdatedAt = DateTime.UtcNow.AddDays(-index)
+            });
+        }
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, creator.Id);
+        var postedResult = await controller.GetMyPostedTasks(page: 2, pageSize: 5);
+        var postedResponse = Assert.IsType<ApiResponse<PaginatedResponse<TaskDto>>>(
+            Assert.IsType<OkObjectResult>(postedResult.Result).Value);
+        Assert.Equal(12, postedResponse.Data!.Count);
+        Assert.Equal(2, postedResponse.Data.Page);
+        Assert.Equal(3, postedResponse.Data.TotalPages);
+        Assert.Equal(5, postedResponse.Data.Tasks.Count);
+
+        var linkedResult = await controller.GetMyPostedTasks(
+            page: 1,
+            pageSize: 5,
+            taskId: "DFY-ACTIVE-12");
+        var linkedResponse = Assert.IsType<ApiResponse<PaginatedResponse<TaskDto>>>(
+            Assert.IsType<OkObjectResult>(linkedResult.Result).Value);
+        Assert.Equal(3, linkedResponse.Data!.Page);
+        Assert.Contains(linkedResponse.Data.Tasks, task => task.TaskId == "DFY-ACTIVE-12");
+
+        var activeController = CreateTasksController(context, runner.Id);
+        var activeResult = await activeController.GetMyActiveTasks(page: 20, pageSize: 5);
+        var activeApiResponse = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(activeResult.Result).Value);
+        var activePage = JsonSerializer.SerializeToElement(activeApiResponse.Data);
+        Assert.Equal(12, activePage.GetProperty("count").GetInt32());
+        Assert.Equal(3, activePage.GetProperty("page").GetInt32());
+        Assert.Equal(3, activePage.GetProperty("totalPages").GetInt32());
+        Assert.Equal(2, activePage.GetProperty("tasks").GetArrayLength());
+
+        var linkedActiveResult = await activeController.GetMyActiveTasks(
+            page: 1,
+            pageSize: 5,
+            taskId: "DFY-ACTIVE-12");
+        var linkedActiveApiResponse = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(linkedActiveResult.Result).Value);
+        var linkedActivePage = JsonSerializer.SerializeToElement(linkedActiveApiResponse.Data);
+        Assert.Equal(3, linkedActivePage.GetProperty("page").GetInt32());
+        Assert.Contains(
+            linkedActivePage.GetProperty("tasks").EnumerateArray(),
+            task => task.GetProperty("taskId").GetString() == "DFY-ACTIVE-12");
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task DuplicateClaim_IsRejected()
     {
         using var context = CreateContext(nameof(DuplicateClaim_IsRejected));
