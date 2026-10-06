@@ -221,8 +221,8 @@ public class ScenarioTests
                 Budget = 200m,
                 PayoutAmount = 170m,
                 PaymentStatus = "EscrowReleased",
-                TaskStatus = "RunnerPaid",
-                PayoutStatus = "Completed",
+                TaskStatus = index == 11 ? "AwaitingConfirmation" : index == 12 ? "PayoutFailed" : "RunnerPaid",
+                PayoutStatus = index == 11 ? "Pending" : index == 12 ? "Failed" : "Completed",
                 EscrowStatus = "released",
                 CreatedByUserId = creator.Id,
                 AcceptedByUserId = runner.Id,
@@ -240,6 +240,20 @@ public class ScenarioTests
         Assert.Equal(2, secondPage.GetProperty("page").GetInt32());
         Assert.Equal(3, secondPage.GetProperty("totalPages").GetInt32());
         Assert.Equal(5, secondPage.GetProperty("tasks").GetArrayLength());
+        Assert.Equal(12, secondPage.GetProperty("statusCounts").GetProperty("all").GetInt32());
+        Assert.Equal(10, secondPage.GetProperty("statusCounts").GetProperty("paid").GetInt32());
+        Assert.Equal(1, secondPage.GetProperty("statusCounts").GetProperty("awaitingCreator").GetInt32());
+
+        var payoutIssueResult = await controller.GetMyCompletedTasks(
+            page: 1,
+            pageSize: 5,
+            status: "payoutIssue");
+        var payoutIssueResponse = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(payoutIssueResult.Result).Value);
+        var payoutIssuePage = JsonSerializer.SerializeToElement(payoutIssueResponse.Data);
+        Assert.Equal(1, payoutIssuePage.GetProperty("count").GetInt32());
+        Assert.Equal("DFY-COMPLETED-12", payoutIssuePage.GetProperty("tasks")[0].GetProperty("taskId").GetString());
+        Assert.Equal(10, payoutIssuePage.GetProperty("statusCounts").GetProperty("paid").GetInt32());
 
         var linkedTaskResult = await controller.GetMyCompletedTasks(
             page: 1,
@@ -331,6 +345,45 @@ public class ScenarioTests
         Assert.Contains(
             linkedActivePage.GetProperty("tasks").EnumerateArray(),
             task => task.GetProperty("taskId").GetString() == "DFY-ACTIVE-12");
+
+        context.Tasks.AddRange(
+            new TaskEntity
+            {
+                TaskId = "DFY-ACTION-PAYMENT",
+                TaskDescription = "Payment action",
+                Category = "Other",
+                Area = "Pretoria",
+                DateNeeded = DateTime.UtcNow.AddDays(1),
+                Budget = 200m,
+                PayoutAmount = 170m,
+                PaymentStatus = "Pending",
+                TaskStatus = "PendingPayment",
+                CreatedByUserId = creator.Id
+            },
+            new TaskEntity
+            {
+                TaskId = "DFY-ACTION-CONFIRMATION",
+                TaskDescription = "Confirmation action",
+                Category = "Other",
+                Area = "Pretoria",
+                DateNeeded = DateTime.UtcNow.AddDays(1),
+                Budget = 200m,
+                PayoutAmount = 170m,
+                PaymentStatus = "EscrowHeld",
+                TaskStatus = "AwaitingConfirmation",
+                CreatedByUserId = creator.Id
+            });
+        await context.SaveChangesAsync();
+
+        var actionRequiredResult = await controller.GetMyPostedTasks(
+            page: 1,
+            pageSize: 1,
+            status: "actionRequired");
+        var actionRequiredResponse = Assert.IsType<ApiResponse<PaginatedResponse<TaskDto>>>(
+            Assert.IsType<OkObjectResult>(actionRequiredResult.Result).Value);
+        Assert.Equal(2, actionRequiredResponse.Data!.Count);
+        Assert.Equal(2, actionRequiredResponse.Data.TotalPages);
+        Assert.Equal(14, actionRequiredResponse.Data.StatusCounts!["all"]);
     }
 
     [Fact]

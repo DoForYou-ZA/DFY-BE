@@ -256,7 +256,8 @@ public class TasksController : ControllerBase
             normalizedStatus != "posted" &&
             normalizedStatus != "claimed" &&
             normalizedStatus != "completed" &&
-            normalizedStatus != "runnerpaid")
+            normalizedStatus != "runnerpaid" &&
+            normalizedStatus != "actionrequired")
             return BadRequest(new ApiResponse<PaginatedResponse<TaskDto>>
             {
                 Success = false,
@@ -270,6 +271,7 @@ public class TasksController : ControllerBase
             "claimed" => allTasksQuery.Where(t => t.TaskStatus == "Claimed" || t.TaskStatus == "InProgress" || t.TaskStatus == "In_Progress"),
             "completed" => allTasksQuery.Where(t => t.TaskStatus == "AwaitingConfirmation"),
             "runnerpaid" => allTasksQuery.Where(t => t.TaskStatus == "RunnerPaid" || t.TaskStatus == "Confirmed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "Completed"),
+            "actionrequired" => allTasksQuery.Where(t => t.TaskStatus == "PendingPayment" || t.TaskStatus == "AwaitingConfirmation"),
             _ => allTasksQuery
         };
         var statusGroups = await allTasksQuery
@@ -803,14 +805,15 @@ public class TasksController : ControllerBase
     public async Task<ActionResult<ApiResponse<object>>> GetMyCompletedTasks(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
-        [FromQuery] string? taskId = null)
+        [FromQuery] string? taskId = null,
+        [FromQuery] string? status = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
 
-        var query = _context.Tasks
+        var allTasksQuery = _context.Tasks
             .Where(t => t.AcceptedByUserId == userId &&
                         (t.TaskStatus == "AwaitingConfirmation" ||
                          t.TaskStatus == "Completed" ||
@@ -818,6 +821,63 @@ public class TasksController : ControllerBase
                          t.TaskStatus == "RunnerPaid" ||
                          t.TaskStatus == "PayoutFailed"));
 
+        var normalizedStatus = status?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrEmpty(normalizedStatus) &&
+            normalizedStatus != "all" &&
+            normalizedStatus != "awaitingcreator" &&
+            normalizedStatus != "payoutissue" &&
+            normalizedStatus != "processing" &&
+            normalizedStatus != "paid")
+            return BadRequest(new ApiResponse<object>
+            {
+                Success = false,
+                Message = "Unsupported completed-task status filter."
+            });
+
+        var query = normalizedStatus switch
+        {
+            "awaitingcreator" => allTasksQuery.Where(t =>
+                t.TaskStatus == "AwaitingConfirmation" ||
+                (t.TaskStatus == "Completed" && (t.PayoutStatus == null || t.PayoutStatus == "Pending"))),
+            "payoutissue" => allTasksQuery.Where(t =>
+                t.PayoutStatus == "Failed" ||
+                t.PayoutStatus == "Returned" ||
+                t.PayoutStatus == "Cancelled"),
+            "processing" => allTasksQuery.Where(t =>
+                t.PayoutStatus == "AwaitingBankDetails" ||
+                t.PayoutStatus == "AwaitingFunds" ||
+                t.PayoutStatus == "Processing" ||
+                t.PayoutStatus == "Pending" ||
+                t.PayoutStatus == "Initiated" ||
+                t.TaskStatus == "PayoutPending"),
+            "paid" => allTasksQuery.Where(t =>
+                t.PayoutStatus == "Completed" ||
+                t.PayoutStatus == "Paid" ||
+                t.TaskStatus == "RunnerPaid"),
+            _ => allTasksQuery
+        };
+        var statusCounts = new Dictionary<string, int>
+        {
+            ["all"] = await allTasksQuery.CountAsync(),
+            ["awaitingCreator"] = await allTasksQuery.CountAsync(t =>
+                t.TaskStatus == "AwaitingConfirmation" ||
+                (t.TaskStatus == "Completed" && (t.PayoutStatus == null || t.PayoutStatus == "Pending"))),
+            ["payoutIssue"] = await allTasksQuery.CountAsync(t =>
+                t.PayoutStatus == "Failed" ||
+                t.PayoutStatus == "Returned" ||
+                t.PayoutStatus == "Cancelled"),
+            ["processing"] = await allTasksQuery.CountAsync(t =>
+                t.PayoutStatus == "AwaitingBankDetails" ||
+                t.PayoutStatus == "AwaitingFunds" ||
+                t.PayoutStatus == "Processing" ||
+                t.PayoutStatus == "Pending" ||
+                t.PayoutStatus == "Initiated" ||
+                t.TaskStatus == "PayoutPending"),
+            ["paid"] = await allTasksQuery.CountAsync(t =>
+                t.PayoutStatus == "Completed" ||
+                t.PayoutStatus == "Paid" ||
+                t.TaskStatus == "RunnerPaid")
+        };
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         if (!string.IsNullOrWhiteSpace(taskId))
@@ -867,7 +927,7 @@ public class TasksController : ControllerBase
         return Ok(new ApiResponse<object>
         {
             Success = true,
-            Data = new { tasks, count = totalCount, page, pageSize, totalPages }
+            Data = new { tasks, count = totalCount, page, pageSize, totalPages, statusCounts }
         });
     }
 
