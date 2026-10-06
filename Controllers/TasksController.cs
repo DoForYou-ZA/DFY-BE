@@ -660,7 +660,7 @@ public class TasksController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var tasks = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.AcceptedByUserId == userId && (t.TaskStatus == "Completed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid")).OrderByDescending(t => t.CompletedAt)
+        var tasks = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.AcceptedByUserId == userId && (t.TaskStatus == "AwaitingConfirmation" || t.TaskStatus == "Completed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid" || t.TaskStatus == "PayoutFailed")).OrderByDescending(t => t.CompletedAt)
             .Select(t => new { id = t.Id, taskId = t.TaskId, title = t.TaskDescription, category = t.Category, location = t.Area, budget = t.Budget, payoutAmount = t.PayoutAmount, status = t.TaskStatus.ToLower(), paymentStatus = t.PaymentStatus, payoutStatus = t.PayoutStatus, payoutReference = t.PayoutReference, payoutInitiatedAt = t.PayoutInitiatedAt, payoutCompletedAt = t.PayoutCompletedAt, completedAt = t.CompletedAt, creatorName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}" }).Cast<object>().ToListAsync();
         return Ok(new ApiResponse<List<object>> { Success = true, Data = tasks });
     }
@@ -703,8 +703,11 @@ public class TasksController : ControllerBase
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
 
-    private static string GeneratePaymentReference(string taskId) =>
-        $"dfy-pay-{taskId}-{Guid.NewGuid():N}"[..Math.Min(50, $"dfy-pay-{taskId}-{Guid.NewGuid():N}".Length)];
+    private static string GeneratePaymentReference(string taskId)
+    {
+        var suffix = Guid.NewGuid().ToString("N")[..12];
+        return $"dfy-pay-{taskId}-{suffix}";
+    }
 
     private string GenerateTaskId()
     {
