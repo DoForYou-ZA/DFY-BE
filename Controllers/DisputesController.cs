@@ -207,16 +207,28 @@ public class DisputesController : ControllerBase
             if (activePayout)
                 return Conflict(new ApiResponse<bool> { Success = false, Message = "A runner payout is already processing or completed for this task." });
 
-            var paymentVerification = await _context.AuditLogs
-                .Where(a =>
-                    a.EntityType == "Task" &&
-                    a.EntityId == task.Id &&
-                    a.Action == "PaystackPaymentVerified" &&
-                    a.NewValues != null)
-                .OrderByDescending(a => a.CreatedAt)
+            // Use the immutable payment-attempt record as the source of truth for
+            // refunds. Audit logs remain a backward-compatible fallback for older tasks.
+            var successfulAttempt = await _context.PaymentAttempts
+                .Where(p => p.TaskId == task.Id && p.Provider == "Paystack" && p.Status == "Completed" && p.TransactionId != null)
+                .OrderByDescending(p => p.CompletedAt ?? p.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            var transactionId = ExtractAuditValue(paymentVerification?.NewValues, "transactionId");
+            var transactionId = successfulAttempt?.TransactionId;
+
+            if (string.IsNullOrWhiteSpace(transactionId))
+            {
+                var paymentVerification = await _context.AuditLogs
+                    .Where(a =>
+                        a.EntityType == "Task" &&
+                        a.EntityId == task.Id &&
+                        a.Action == "PaystackPaymentVerified" &&
+                        a.NewValues != null)
+                    .OrderByDescending(a => a.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                transactionId = ExtractAuditValue(paymentVerification?.NewValues, "transactionId");
+            }
             if (string.IsNullOrWhiteSpace(transactionId))
                 return Conflict(new ApiResponse<bool> { Success = false, Message = "Original Paystack transaction ID is not available; refund cannot be safely submitted." });
 
