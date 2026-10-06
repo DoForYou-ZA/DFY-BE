@@ -614,7 +614,7 @@ public class TasksController : ControllerBase
 
         var completedPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && p.Status == "Completed").ToListAsync();
         var totalEarnings = completedPayouts.Sum(p => p.Amount);
-        var pendingPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && (p.Status == "Pending" || p.Status == "Processing" || p.Status == "AwaitingBankDetails")).SumAsync(p => p.Amount);
+        var pendingPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && (p.Status == "Pending" || p.Status == "Processing" || p.Status == "AwaitingFunds" || p.Status == "AwaitingBankDetails")).SumAsync(p => p.Amount);
         var thisMonthEarnings = completedPayouts.Where(p => p.CompletedAt.HasValue && p.CompletedAt.Value.Month == currentMonth && p.CompletedAt.Value.Year == currentYear).Sum(p => p.Amount);
         var totalAcceptedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId);
         var completionRate = totalAcceptedTasks > 0 ? (runnerCompletedTasks * 100) / totalAcceptedTasks : 0;
