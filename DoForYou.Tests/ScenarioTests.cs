@@ -58,6 +58,53 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Notifications_LinksLegacyPayoutByMatchingTaskDescription()
+    {
+        using var context = CreateContext(nameof(Notifications_LinksLegacyPayoutByMatchingTaskDescription));
+        var creator = CreateUser(1, "creator", true, "creator-notifications@test.com");
+        var runner = CreateUser(2, "runner", true, "runner-notifications@test.com");
+        var task = new TaskEntity
+        {
+            TaskId = "DFY-LEGACY-PAYOUT-1",
+            TaskName = "Legacy payout",
+            TaskDescription = "Legacy payout task",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id,
+            TaskStatus = "RunnerPaid",
+            UpdatedAt = DateTime.UtcNow
+        };
+        context.Users.AddRange(creator, runner);
+        context.Tasks.Add(task);
+        context.Notifications.Add(new Notification
+        {
+            UserId = runner.Id,
+            Type = "payout_pending",
+            Title = "Payout Initiated",
+            Message = "Your R170.00 runner payout is queued for: Legacy payout task",
+            CreatedAt = DateTime.UtcNow
+        });
+        await context.SaveChangesAsync();
+
+        var controller = new NotificationsController(context);
+        var httpContext = new DefaultHttpContext();
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(ClaimTypes.NameIdentifier, runner.Id.ToString())]));
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
+
+        var result = await controller.GetNotifications();
+        var response = Assert.IsType<ApiResponse<List<object>>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(response.Data));
+
+        Assert.Equal(task.Id, json.RootElement[0].GetProperty("relatedTaskId").GetInt32());
+        Assert.Equal(task.TaskId, json.RootElement[0].GetProperty("relatedTaskStringId").GetString());
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task PaymentUrlRetry_CreatesUniquePaystackAttempts()
     {
         using var context = CreateContext(nameof(PaymentUrlRetry_CreatesUniquePaystackAttempts));
@@ -632,9 +679,9 @@ private static AppDbContext CreateContext(string name)
     private sealed class NoOpNotificationService : INotificationService
     {
         public TaskResult CreateNotificationAsync(int userId, string type, string title, string message, int? relatedTaskId = null) => TaskResult.CompletedTask;
-        public TaskResult NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName) => TaskResult.CompletedTask;
-        public TaskResult NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName) => TaskResult.CompletedTask;
-        public TaskResult NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount) => TaskResult.CompletedTask;
+        public TaskResult NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null) => TaskResult.CompletedTask;
+        public TaskResult NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null) => TaskResult.CompletedTask;
+        public TaskResult NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyPayoutCompletedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyNewMessageAsync(int recipientId, string taskDescription, string senderName, int? taskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyAdminsAsync(string type, string title, string message, int? relatedTaskId = null) => TaskResult.CompletedTask;

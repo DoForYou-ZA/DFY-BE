@@ -9,9 +9,9 @@ namespace DoForYou.API.Services;
 public interface INotificationService
 {
     System.Threading.Tasks.Task CreateNotificationAsync(int userId, string type, string title, string message, int? relatedTaskId = null);
-    System.Threading.Tasks.Task NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName);
-    System.Threading.Tasks.Task NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName);
-    System.Threading.Tasks.Task NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount);
+    System.Threading.Tasks.Task NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null);
+    System.Threading.Tasks.Task NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null);
+    System.Threading.Tasks.Task NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null);
     System.Threading.Tasks.Task NotifyPayoutCompletedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null);
     System.Threading.Tasks.Task NotifyNewMessageAsync(int recipientId, string taskDescription, string senderName, int? taskId = null);
     System.Threading.Tasks.Task NotifyAdminsAsync(string type, string title, string message, int? relatedTaskId = null);
@@ -42,6 +42,12 @@ public class NotificationService : INotificationService
 
         _context.Notifications.Add(notification);
         await _context.SaveChangesAsync();
+        var relatedTaskStringId = relatedTaskId.HasValue
+            ? await _context.Tasks
+                .Where(task => task.Id == relatedTaskId.Value)
+                .Select(task => task.TaskId)
+                .FirstOrDefaultAsync()
+            : null;
 
         await _hubContext.Clients.User(userId.ToString()).SendAsync("NewNotification", new
         {
@@ -51,42 +57,43 @@ public class NotificationService : INotificationService
             message = notification.Message,
             isRead = notification.IsRead,
             createdAt = notification.CreatedAt,
-            relatedTaskId = notification.RelatedTaskId
+            relatedTaskId = notification.RelatedTaskId,
+            relatedTaskStringId
         });
     }
 
-    public async System.Threading.Tasks.Task NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName)
+    public async System.Threading.Tasks.Task NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null)
     {
         await CreateNotificationAsync(
             creatorId,
             "task_claimed",
             "Task Claimed",
             $"{runnerName} has claimed your task: {taskDescription}",
-            null
+            taskId
         );
     }
 
-    public async System.Threading.Tasks.Task NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName)
+    public async System.Threading.Tasks.Task NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName, int? taskId = null)
     {
         await CreateNotificationAsync(
             creatorId,
             "task_completed",
             "Task Completed",
             $"{runnerName} has completed your task: {taskDescription}",
-            null
+            taskId
         );
     }
 
     // Kept as the existing interface entry point used by the task confirmation flow.
     // The payout is queued here; Ozow status 5 is the authoritative payout completion event.
-    public async System.Threading.Tasks.Task NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount)
+    public async System.Threading.Tasks.Task NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null)
     {
         await CreateNotificationAsync(
             runnerId,
             "payout_pending",
             "Payout Initiated",
             $"Your R{amount:F2} runner payout has been queued and is being processed through Ozow for: {taskDescription}",
-            null
+            taskId
         );
     }
 

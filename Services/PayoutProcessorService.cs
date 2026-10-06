@@ -228,7 +228,8 @@ public sealed class PayoutProcessorService(
                     await notifications.NotifyPaymentReleasedAsync(
                         payout.RunnerId,
                         payout.Task.TaskDescription,
-                        payout.Amount);
+                        payout.Amount,
+                        payout.Task.Id);
                 }
                 break;
 

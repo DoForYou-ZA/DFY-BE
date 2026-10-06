@@ -416,7 +416,7 @@ public class TasksController : ControllerBase
         if (affected != 1)
             return Ok(new ApiResponse<bool> { Success = false, Message = "Task was just accepted by another runner." });
 
-        await _notificationService.NotifyTaskClaimedAsync(task.CreatedByUserId, task.TaskDescription, request.HelperName.Trim());
+        await _notificationService.NotifyTaskClaimedAsync(task.CreatedByUserId, task.TaskDescription, request.HelperName.Trim(), task.Id);
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Task accepted successfully." });
     }
 
@@ -573,7 +573,7 @@ public class TasksController : ControllerBase
 
         await _context.SaveChangesAsync();
 
-        await _notificationService.NotifyTaskCompletedAsync(task.CreatedByUserId, task.TaskDescription, $"{runner?.FirstName} {runner?.LastName}");
+        await _notificationService.NotifyTaskCompletedAsync(task.CreatedByUserId, task.TaskDescription, $"{runner?.FirstName} {runner?.LastName}", task.Id);
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Task completed! You have 24 hours to confirm completion or raise a dispute. If you take no action, payment will be released automatically." });
     }
 
@@ -601,7 +601,7 @@ public class TasksController : ControllerBase
         });
         await _context.SaveChangesAsync();
 
-        await _notificationService.NotifyPaymentReleasedAsync(task.AcceptedByUserId!.Value, task.TaskDescription, task.PayoutAmount);
+        await _notificationService.NotifyPaymentReleasedAsync(task.AcceptedByUserId!.Value, task.TaskDescription, task.PayoutAmount, task.Id);
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Task confirmed and payout initiated!" });
     }
 

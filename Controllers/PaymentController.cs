@@ -416,7 +416,8 @@ public class PaymentController : ControllerBase
                 await _notificationService.NotifyPaymentReleasedAsync(
                     payout.RunnerId,
                     payout.Task.TaskDescription,
-                    payout.Amount);
+                    payout.Amount,
+                    payout.Task.Id);
             }
         }
         else if (eventName == "transfer.reversed")

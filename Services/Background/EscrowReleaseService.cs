@@ -46,7 +46,8 @@ public class EscrowReleaseService : BackgroundService
                         await notificationService.NotifyPaymentReleasedAsync(
                             task.AcceptedByUserId.Value,
                             task.TaskDescription,
-                            task.PayoutAmount);
+                            task.PayoutAmount,
+                            task.Id);
                     }
 
                     await notificationService.CreateNotificationAsync(
