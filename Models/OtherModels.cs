@@ -27,6 +27,23 @@ public class Payment
     public Task Task { get; set; } = null!;
 }
 
+public class PaymentAttempt
+{
+    public int Id { get; set; }
+    public int TaskId { get; set; }
+    public string Provider { get; set; } = "Paystack";
+    public string Reference { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string Status { get; set; } = "Pending";
+    public string? PaymentUrl { get; set; }
+    public string? TransactionId { get; set; }
+    public string? FailureReason { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? CompletedAt { get; set; }
+
+    public Task Task { get; set; } = null!;
+}
+
 public class TaskMessage
 {
     public int Id { get; set; }
