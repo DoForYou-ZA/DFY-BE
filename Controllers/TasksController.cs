@@ -105,6 +105,7 @@ public class TasksController : ControllerBase
             $"{user.FirstName} {user.LastName} created task {taskId} — R{request.Budget:F0} ({request.Category})",
             task.Id);
 
+        task.PaymentReference = GeneratePaymentReference(task.TaskId);
         var payment = await _paymentProvider.CreatePaymentAsync(task, user, HttpContext.RequestAborted);
         if (!payment.Success || string.IsNullOrWhiteSpace(payment.PaymentUrl))
         {
@@ -112,7 +113,29 @@ public class TasksController : ControllerBase
                 new ApiResponse<object> { Success = false, Message = payment.Error ?? "Unable to create Paystack payment request." });
         }
 
-        task.PaymentReference = payment.TransactionReference;
+        task.PaymentReference = payment.TransactionReference ?? task.PaymentReference;
+        _context.PaymentAttempts.Add(new PaymentAttempt
+        {
+            TaskId = task.Id,
+            Provider = "Paystack",
+            Reference = task.PaymentReference!,
+            Amount = task.Budget,
+            Status = "Pending",
+            PaymentUrl = payment.PaymentUrl,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        _context.AuditLogs.Add(new Models.AuditLog
+        {
+            UserId = userId.Value,
+            Action = "PaystackPaymentCreated",
+            EntityType = "Task",
+            EntityId = task.Id,
+            NewValues = $"transactionReference={task.PaymentReference}; amount={task.Budget:F2}",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
         var paymentRecord = await _context.Payments.FirstOrDefaultAsync(p => p.TaskId == task.Id);
         if (paymentRecord == null)
         {
@@ -323,11 +346,36 @@ public class TasksController : ControllerBase
         if (task == null || task.TaskStatus != "PendingPayment")
             return Ok(new ApiResponse<object> { Success = false, Message = "Task not found or payment not pending" });
 
+        // Every checkout attempt must receive a new Paystack reference. Reusing a
+        // previous reference causes Paystack to reject the initialization.
+        task.PaymentReference = GeneratePaymentReference(task.TaskId);
         var payment = await _paymentProvider.CreatePaymentAsync(task, task.CreatedByUser, HttpContext.RequestAborted);
         if (!payment.Success || string.IsNullOrWhiteSpace(payment.PaymentUrl))
             return StatusCode(StatusCodes.Status502BadGateway, new ApiResponse<object> { Success = false, Message = payment.Error ?? "Unable to create Paystack payment request." });
 
-        task.PaymentReference = payment.TransactionReference;
+        task.PaymentReference = payment.TransactionReference ?? task.PaymentReference;
+        _context.PaymentAttempts.Add(new PaymentAttempt
+        {
+            TaskId = task.Id,
+            Provider = "Paystack",
+            Reference = task.PaymentReference!,
+            Amount = task.Budget,
+            Status = "Pending",
+            PaymentUrl = payment.PaymentUrl,
+            CreatedAt = DateTime.UtcNow
+        });
+
+        _context.AuditLogs.Add(new Models.AuditLog
+        {
+            UserId = userId.Value,
+            Action = "PaystackPaymentCreated",
+            EntityType = "Task",
+            EntityId = task.Id,
+            NewValues = $"transactionReference={task.PaymentReference}; amount={task.Budget:F2}",
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
         var paymentRecord = await _context.Payments.FirstOrDefaultAsync(p => p.TaskId == task.Id);
         if (paymentRecord == null)
         {
@@ -654,6 +702,9 @@ public class TasksController : ControllerBase
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return int.TryParse(userIdClaim, out var userId) ? userId : null;
     }
+
+    private static string GeneratePaymentReference(string taskId) =>
+        $"dfy-pay-{taskId}-{Guid.NewGuid():N}"[..Math.Min(50, $"dfy-pay-{taskId}-{Guid.NewGuid():N}".Length)];
 
     private string GenerateTaskId()
     {
