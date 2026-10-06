@@ -192,8 +192,17 @@ builder.Services.AddHostedService<PayoutProcessorService>();
 
 var app = builder.Build();
 
-// Database migrations are intentionally NOT executed at application startup.
-// Schema changes are applied explicitly and separately after code validation.
+// Migrations remain opt-in. Staging can set AUTO_MIGRATE=true so the deployed
+// service applies pending EF migrations (including the Paystack payment-attempt
+// table) before serving requests. Production should keep this disabled and
+// apply migrations through the release process.
+if (string.Equals(Environment.GetEnvironmentVariable("AUTO_MIGRATE"), "true", StringComparison.OrdinalIgnoreCase))
+{
+    using var migrationScope = app.Services.CreateScope();
+    var migrationDb = migrationScope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await migrationDb.Database.MigrateAsync();
+}
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
