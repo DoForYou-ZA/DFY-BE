@@ -180,9 +180,8 @@ public class PaymentController : ControllerBase
             {
                 paymentAttempt.Status = "Duplicate";
                 paymentAttempt.TransactionId = tx;
-                paymentAttempt.FailureReason = "Another successful Paystack payment already activated this task.";
-                paymentAttempt.CompletedAt = DateTime.UtcNow;
                 paymentAttempt.FailureReason = "Duplicate successful payment requires admin review/refund.";
+                paymentAttempt.CompletedAt = DateTime.UtcNow;
                 _context.AuditLogs.Add(new Models.AuditLog
                 {
                     UserId = null,
