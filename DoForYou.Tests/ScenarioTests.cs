@@ -57,6 +57,60 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task PaymentUrlRetry_CreatesUniquePaystackAttempts()
+    {
+        using var context = CreateContext(nameof(PaymentUrlRetry_CreatesUniquePaystackAttempts));
+        var creator = CreateUser(1, "creator", true, "creator-payments@test.com");
+        context.Users.Add(creator);
+
+        var task = new TaskEntity
+        {
+            TaskId = "DFY-PAY-RETRY-1",
+            TaskName = "Payment retry test",
+            TaskDescription = "Testing unique Paystack payment attempts",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 500m,
+            CommissionAmount = 75m,
+            PayoutAmount = 425m,
+            PaymentStatus = "Pending",
+            TaskStatus = "PendingPayment",
+            EscrowStatus = "pending",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, creator.Id);
+
+        var first = await controller.GetPaymentUrl(task.TaskId);
+        var second = await controller.GetPaymentUrl(task.TaskId);
+
+        Assert.True(((ApiResponse<object>)((OkObjectResult)first.Result!).Value!).Success);
+        Assert.True(((ApiResponse<object>)((OkObjectResult)second.Result!).Value!).Success);
+
+        var attempts = await context.PaymentAttempts
+            .Where(a => a.TaskId == task.Id)
+            .OrderBy(a => a.CreatedAt)
+            .ToListAsync();
+
+        Assert.Equal(2, attempts.Count);
+        Assert.NotEqual(attempts[0].Reference, attempts[1].Reference);
+        Assert.All(attempts, attempt =>
+        {
+            Assert.Equal("Paystack", attempt.Provider);
+            Assert.Equal(task.Budget, attempt.Amount);
+            Assert.Equal("Pending", attempt.Status);
+        });
+
+        var refreshed = await context.Tasks.SingleAsync(t => t.Id == task.Id);
+        Assert.Equal(attempts[1].Reference, refreshed.PaymentReference);
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task RunnerCanClaimPostedTask()
     {
         using var context = CreateContext(nameof(RunnerCanClaimPostedTask));
