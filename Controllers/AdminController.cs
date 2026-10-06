@@ -17,14 +17,14 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IEscrowService _escrowService;
     private readonly IUserPolicyService _userPolicyService;
-    private readonly IOzowPaymentService _ozowPaymentService;
+    private readonly IPaymentProvider _paymentProvider;
 
-    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IOzowPaymentService ozowPaymentService)
+    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IPaymentProvider paymentProvider)
     {
         _context = context;
         _escrowService = escrowService;
         _userPolicyService = userPolicyService;
-        _ozowPaymentService = ozowPaymentService;
+        _paymentProvider = paymentProvider;
     }
 
     private int? GetAdminId() =>
@@ -455,7 +455,7 @@ public class AdminController : ControllerBase
         }
 
         // In E2E mode only, seed the minimum verified payout prerequisite so the
-        // production escrow release path can be exercised without an external bank/Ozow call.
+        // production escrow release path can be exercised without an external bank/Paystack call.
         if (task.AcceptedByUserId.HasValue)
         {
             var testBankAccount = await _context.BankAccounts
@@ -729,13 +729,13 @@ public class AdminController : ControllerBase
         var reconciled = 0;
         foreach (var refund in pending)
         {
-            var providerRefunds = await _ozowPaymentService.GetRefundsByTransactionIdAsync(
+            var providerRefunds = await _paymentProvider.GetRefundsByTransactionIdAsync(
                 refund.TransactionId,
                 HttpContext.RequestAborted);
 
             var match = providerRefunds
                 .Where(r => r.Amount == refund.Amount)
-                .OrderByDescending(r => r.Status == 1)
+                .OrderByDescending(r => string.Equals(r.Status, "processed", StringComparison.OrdinalIgnoreCase))
                 .FirstOrDefault();
 
             if (match == null)
@@ -745,25 +745,20 @@ public class AdminController : ControllerBase
             }
 
             refund.RefundId = match.RefundId;
-            refund.Status = match.Status switch
+            refund.Status = match.Status.ToLowerInvariant() switch
             {
-                0 => "Pending",
-                1 => "Complete",
-                2 => "Submitted",
-                3 => "Failed",
-                4 => "Cancelled",
-                5 => "Returned",
-                -1 => "Invalid",
-                -2 => "PendingInvestigation",
-                -3 => "Error",
-                _ => "Pending"
+                "pending" or "processing" => "Submitted",
+                "processed" => "Complete",
+                "failed" => "Failed",
+                "needs-attention" => "PendingInvestigation",
+                _ => "Submitted"
             };
             refund.LastReconciledAt = DateTime.UtcNow;
-            if (match.Status == 1)
+            if (refund.Status == "Complete")
                 refund.CompletedAt ??= DateTime.UtcNow;
 
             var task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == refund.TaskId);
-            if (task != null && match.Status == 1)
+            if (task != null && refund.Status == "Complete")
             {
                 task.PaymentStatus = "Refunded";
                 task.TaskStatus = "Cancelled";

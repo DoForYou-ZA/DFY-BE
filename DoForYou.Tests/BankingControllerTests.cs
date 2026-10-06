@@ -13,7 +13,7 @@ namespace DoForYou.Tests;
 public class BankingControllerTests
 {
     [Fact]
-    public async System.Threading.Tasks.Task AddBankAccount_UsesOzowCanonicalBankDetails()
+    public async System.Threading.Tasks.Task AddBankAccount_UsesPaystackCanonicalBankDetails()
     {
         using var context = CreateContext();
 
@@ -29,11 +29,11 @@ public class BankingControllerTests
                     "Bank account verified.")
         };
 
-        var banks = new FakeOzowBankService(
+        var banks = new FakePaystackBankProvider(
             new[]
             {
-                new OzowBank(
-                    "BANK-GROUP-123",
+                new SupportedBank(
+                    "632005",
                     "Canonical Bank",
                     "123456")
             });
@@ -49,7 +49,8 @@ public class BankingControllerTests
             await controller.AddBankAccount(
                 new AddBankAccountRequest
                 {
-                    BankGroupId = "BANK-GROUP-123",
+                    BankCode = "632005",
+                    BankGroupId = "632005",
 
                     // Deliberately incorrect client display values.
                     BankName = "Fake Client Bank",
@@ -71,9 +72,9 @@ public class BankingControllerTests
 
         Assert.True(response.Success);
 
-        // Server must use Ozow's canonical values.
+        // Server must use Paystack's canonical values.
         Assert.Equal("Canonical Bank", account.BankName);
-        Assert.Equal("BANK-GROUP-123", account.BankGroupId);
+        Assert.Equal("632005", account.BankCode);
         Assert.Equal("123456", account.BranchCode);
 
         Assert.True(account.IsVerified);
@@ -83,7 +84,7 @@ public class BankingControllerTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task AddBankAccount_RejectsUnknownOzowBank()
+    public async System.Threading.Tasks.Task AddBankAccount_RejectsUnknownPaystackBank()
     {
         using var context = CreateContext();
 
@@ -93,11 +94,11 @@ public class BankingControllerTests
 
         var banking = new FakeBankingService();
 
-        var banks = new FakeOzowBankService(
+        var banks = new FakePaystackBankProvider(
             new[]
             {
-                new OzowBank(
-                    "BANK-GROUP-123",
+                new SupportedBank(
+                    "632005",
                     "Canonical Bank",
                     "123456")
             });
@@ -113,6 +114,7 @@ public class BankingControllerTests
             await controller.AddBankAccount(
                 new AddBankAccountRequest
                 {
+                    BankCode = "NOT-A-REAL-BANK",
                     BankGroupId = "NOT-A-REAL-BANK",
                     BankName = "Canonical Bank",
                     AccountNumber = "1234567890",
@@ -130,7 +132,7 @@ public class BankingControllerTests
         Assert.False(response.Success);
 
         Assert.Equal(
-            "The selected bank is not currently available for Ozow payouts.",
+            "The selected bank is not currently available for Paystack verification or payouts.",
             response.Message);
 
         Assert.Empty(
@@ -157,7 +159,7 @@ public class BankingControllerTests
                     "Bank verification is temporarily unavailable.")
         };
 
-        var banks = new FakeOzowBankService(
+        var banks = new FakePaystackBankProvider(
             new[]
             {
                 new OzowBank(
@@ -177,7 +179,8 @@ public class BankingControllerTests
             await controller.AddBankAccount(
                 new AddBankAccountRequest
                 {
-                    BankGroupId = "BANK-GROUP-123",
+                    BankCode = "632005",
+                    BankGroupId = "632005",
                     BankName = "Fake Bank",
                     AccountNumber = "1234567890",
                     AccountHolderName = "Jane Runner",
@@ -235,13 +238,13 @@ public class BankingControllerTests
         AppDbContext context,
         int userId,
         IBankingService bankingService,
-        IOzowBankService ozowBankService)
+        IBankProvider bankProvider)
     {
         var controller =
             new BankingController(
                 context,
                 bankingService,
-                ozowBankService);
+                bankProvider);
 
         controller.ControllerContext =
             new ControllerContext
@@ -299,21 +302,31 @@ public class BankingControllerTests
         }
     }
 
-    private sealed class FakeOzowBankService : IOzowBankService
+    private sealed class FakePaystackBankProvider : IBankProvider
     {
-        private readonly IReadOnlyList<OzowBank> _banks;
+        private readonly IReadOnlyList<SupportedBank> _banks;
 
-        public FakeOzowBankService(
-            IReadOnlyList<OzowBank> banks)
+        public FakePaystackBankProvider(
+            IReadOnlyList<SupportedBank> banks)
         {
             _banks = banks;
         }
 
-        public System.Threading.Tasks.Task<IReadOnlyList<OzowBank>>
-            GetAvailableBanksAsync(
+        public System.Threading.Tasks.Task<IReadOnlyList<SupportedBank>>
+            GetSupportedBanksAsync(
                 CancellationToken cancellationToken = default)
         {
             return System.Threading.Tasks.Task.FromResult(_banks);
+        }
+
+        public System.Threading.Tasks.Task<BankVerificationResultV2>
+            VerifyBankAccountAsync(
+                User user,
+                BankAccount bankAccount,
+                CancellationToken cancellationToken = default)
+        {
+            return System.Threading.Tasks.Task.FromResult(
+                new BankVerificationResultV2(true, "Bank account verified.", "RCP_TEST"));
         }
     }
 }

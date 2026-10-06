@@ -88,6 +88,9 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("BankCode")
+                        .HasColumnType("text");
+
                     b.Property<string>("BankGroupId")
                         .HasColumnType("text");
 
@@ -107,6 +110,9 @@ namespace DoForYou.API.Migrations
 
                     b.Property<bool>("IsVerified")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("ProviderReference")
+                        .HasColumnType("text");
 
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
@@ -308,6 +314,10 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<string>("PaymentUrl")
                         .HasColumnType("text");
 
@@ -326,6 +336,72 @@ namespace DoForYou.API.Migrations
                     b.HasIndex("TaskId");
 
                     b.ToTable("Payments");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.PaymentAttempt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PaymentUrl")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("TaskId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TransactionId")
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Reference")
+                        .IsUnique();
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("TransactionId")
+                        .IsUnique()
+                        .HasFilter("\"TransactionId\" IS NOT NULL");
+
+                    b.ToTable("PaymentAttempts");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.PaymentAttempt", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.Task", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Task");
                 });
 
             modelBuilder.Entity("DoForYou.API.Models.Payout", b =>

@@ -17,14 +17,14 @@ public class DisputesController : ControllerBase
     private readonly AppDbContext _context;
     private readonly IEscrowService _escrowService;
     private readonly INotificationService _notificationService;
-    private readonly IOzowPaymentService _ozowPaymentService;
+    private readonly IPaymentProvider _paymentProvider;
 
-    public DisputesController(AppDbContext context, IEscrowService escrowService, INotificationService notificationService, IOzowPaymentService ozowPaymentService)
+    public DisputesController(AppDbContext context, IEscrowService escrowService, INotificationService notificationService, IPaymentProvider paymentProvider)
     {
         _context = context;
         _escrowService = escrowService;
         _notificationService = notificationService;
-        _ozowPaymentService = ozowPaymentService;
+        _paymentProvider = paymentProvider;
     }
 
     [HttpPost]
@@ -58,7 +58,7 @@ public class DisputesController : ControllerBase
         };
 
         // A dispute must stop the normal 24-hour creator auto-release path. The task remains
-        // completed/held so an admin can later release it into the Ozow payout flow.
+        // completed/held so an admin can later release it into the Paystack payout flow.
         if (task.EscrowStatus == "held" || task.PaymentStatus == "EscrowHeld")
         {
             task.EscrowStatus = "disputed";
@@ -182,8 +182,8 @@ public class DisputesController : ControllerBase
         if (action == "release_to_runner")
         {
             // Re-open the escrow hold for the release service, then create the normal
-            // idempotent Ozow payout. The payout processor will only mark the runner paid
-            // after Ozow confirms status 5.
+            // idempotent Paystack payout. The payout processor will only mark the runner paid
+            // after Paystack confirms a successful transfer.
             task.EscrowStatus = "held";
             task.PaymentStatus = "EscrowHeld";
             task.EscrowHoldUntil = DateTime.UtcNow.AddSeconds(-1);
@@ -192,7 +192,7 @@ public class DisputesController : ControllerBase
 
             var released = await _escrowService.ReleaseEscrowAsync(task.Id, force: true);
             if (!released)
-                return Ok(new ApiResponse<bool> { Success = false, Message = "Unable to release escrow into the Ozow payout flow" });
+                return Ok(new ApiResponse<bool> { Success = false, Message = "Unable to release escrow into the Paystack payout flow" });
         }
         else if (action == "refund_creator")
         {
@@ -207,18 +207,30 @@ public class DisputesController : ControllerBase
             if (activePayout)
                 return Conflict(new ApiResponse<bool> { Success = false, Message = "A runner payout is already processing or completed for this task." });
 
-            var paymentVerification = await _context.AuditLogs
-                .Where(a =>
-                    a.EntityType == "Task" &&
-                    a.EntityId == task.Id &&
-                    a.Action == "OzowPaymentVerified" &&
-                    a.NewValues != null)
-                .OrderByDescending(a => a.CreatedAt)
+            // Use the immutable payment-attempt record as the source of truth for
+            // refunds. Audit logs remain a backward-compatible fallback for older tasks.
+            var successfulAttempt = await _context.PaymentAttempts
+                .Where(p => p.TaskId == task.Id && p.Provider == "Paystack" && p.Status == "Completed" && p.TransactionId != null)
+                .OrderByDescending(p => p.CompletedAt ?? p.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            var transactionId = ExtractAuditValue(paymentVerification?.NewValues, "transactionId");
+            var transactionId = successfulAttempt?.TransactionId;
+
             if (string.IsNullOrWhiteSpace(transactionId))
-                return Conflict(new ApiResponse<bool> { Success = false, Message = "Original Ozow transaction ID is not available; refund cannot be safely submitted." });
+            {
+                var paymentVerification = await _context.AuditLogs
+                    .Where(a =>
+                        a.EntityType == "Task" &&
+                        a.EntityId == task.Id &&
+                        a.Action == "PaystackPaymentVerified" &&
+                        a.NewValues != null)
+                    .OrderByDescending(a => a.CreatedAt)
+                    .FirstOrDefaultAsync();
+
+                transactionId = ExtractAuditValue(paymentVerification?.NewValues, "transactionId");
+            }
+            if (string.IsNullOrWhiteSpace(transactionId))
+                return Conflict(new ApiResponse<bool> { Success = false, Message = "Original Paystack transaction ID is not available; refund cannot be safely submitted." });
 
             var existingRefund = await _context.Refunds
                 .FirstOrDefaultAsync(r => r.TaskId == task.Id);
@@ -228,9 +240,9 @@ public class DisputesController : ControllerBase
 
             if (existingRefund != null && !string.IsNullOrWhiteSpace(existingRefund.RefundId) &&
                 existingRefund.Status is "Pending" or "Submitted" or "PendingInvestigation")
-                return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already submitted and awaiting Ozow confirmation." });
+                return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already submitted and awaiting Paystack confirmation." });
 
-            // Create the unique refund record before calling Ozow. TaskId is unique,
+            // Create the unique refund record before calling Paystack. TaskId is unique,
             // so concurrent admin requests cannot create two DFY refund records.
             var refundRecord = existingRefund ?? new Models.Refund
             {
@@ -240,7 +252,7 @@ public class DisputesController : ControllerBase
                 Amount = task.Budget,
                 Reason = resolution,
                 Status = "Pending",
-                Provider = "Ozow"
+                Provider = "Paystack"
             };
 
             if (existingRefund == null)
@@ -254,48 +266,45 @@ public class DisputesController : ControllerBase
                 {
                     refundRecord = await _context.Refunds.FirstAsync(r => r.TaskId == task.Id);
                     if (!string.IsNullOrWhiteSpace(refundRecord.RefundId))
-                        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already submitted and awaiting Ozow confirmation." });
+                        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already submitted and awaiting Paystack confirmation." });
                 }
             }
 
             // If a previous attempt has a provider record, reconcile it before resubmitting.
-            var providerRefunds = await _ozowPaymentService.GetRefundsByTransactionIdAsync(
+            var providerRefunds = await _paymentProvider.GetRefundsByTransactionIdAsync(
                 refundRecord.TransactionId,
                 HttpContext.RequestAborted);
             var matchingProviderRefund = providerRefunds
                 .Where(r => r.Amount == refundRecord.Amount)
-                .OrderByDescending(r => r.Status == 1)
+                .OrderByDescending(r => string.Equals(r.Status, "processed", StringComparison.OrdinalIgnoreCase))
                 .FirstOrDefault();
 
             if (matchingProviderRefund != null)
             {
                 refundRecord.RefundId = matchingProviderRefund.RefundId;
-                refundRecord.Status = matchingProviderRefund.Status switch
+                refundRecord.Status = matchingProviderRefund.Status.ToLowerInvariant() switch
                 {
-                    1 => "Complete",
-                    3 => "Failed",
-                    4 => "Cancelled",
-                    5 => "Returned",
-                    -1 => "Invalid",
-                    -2 => "PendingInvestigation",
-                    -3 => "Error",
+                    "processed" => "Complete",
+                    "failed" => "Failed",
+                    "needs-attention" => "PendingInvestigation",
+                    "pending" or "processing" => "Submitted",
                     _ => "Submitted"
                 };
                 refundRecord.LastReconciledAt = DateTime.UtcNow;
-                if (matchingProviderRefund.Status == 1)
+                if (refundRecord.Status == "Complete")
                     refundRecord.CompletedAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
 
-                if (matchingProviderRefund.Status == 1)
-                    return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "The refund was confirmed with Ozow." });
+                if (refundRecord.Status == "Complete")
+                    return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "The refund was confirmed with Paystack." });
 
-                if (matchingProviderRefund.Status is 3 or 4 or 5 or -1 or -3)
-                    return Conflict(new ApiResponse<bool> { Success = false, Message = $"Ozow reports the existing refund as {refundRecord.Status}." });
+                if (refundRecord.Status is "Failed" or "PendingInvestigation")
+                    return Conflict(new ApiResponse<bool> { Success = false, Message = $"Paystack reports the existing refund as {refundRecord.Status}." });
 
-                return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already with Ozow and awaiting completion." });
+                return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "A refund is already with Paystack and awaiting completion." });
             }
 
-            var refund = await _ozowPaymentService.SubmitRefundAsync(
+            var refund = await _paymentProvider.CreateRefundAsync(
                 refundRecord.TransactionId,
                 refundRecord.Amount,
                 refundRecord.Reason,
@@ -308,7 +317,7 @@ public class DisputesController : ControllerBase
                 refundRecord.LastReconciledAt = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
                 return StatusCode(StatusCodes.Status502BadGateway,
-                    new ApiResponse<bool> { Success = false, Message = refund.Error ?? "Unable to submit Ozow refund." });
+                    new ApiResponse<bool> { Success = false, Message = refund.Error ?? "Unable to submit Paystack refund." });
             }
 
             refundRecord.RefundId = refund.RefundId;
@@ -326,7 +335,7 @@ public class DisputesController : ControllerBase
             await _context.AuditLogs.AddAsync(new Models.AuditLog
             {
                 UserId = GetCurrentUserId(),
-                Action = "OzowRefundSubmitted",
+                Action = "PaystackRefundSubmitted",
                 EntityType = "Task",
                 EntityId = task.Id,
                 NewValues = $"refundId={refund.RefundId}; transactionId={transactionId}; amount={task.Budget:F2}",
@@ -344,10 +353,10 @@ public class DisputesController : ControllerBase
                 task.CreatedByUserId,
                 "refund_pending",
                 "Refund Submitted",
-                $"Your refund for task {task.TaskId} has been submitted to Ozow and is awaiting confirmation.",
+                $"Your refund for task {task.TaskId} has been submitted to Paystack and is awaiting confirmation.",
                 task.Id);
 
-            return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Refund submitted to Ozow and is awaiting provider confirmation." });
+            return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Refund submitted to Paystack and is awaiting provider confirmation." });
         }
         else
         {
@@ -361,7 +370,7 @@ public class DisputesController : ControllerBase
 
         // Notify the participants about the administrative resolution.
         var message = action == "release_to_runner"
-            ? $"Your dispute for task {task.TaskId} was resolved and the runner payout is being processed through Ozow."
+            ? $"Your dispute for task {task.TaskId} was resolved and the runner payout is being processed through Paystack."
             : $"Your dispute for task {task.TaskId} was resolved.";
 
         await _notificationService.CreateNotificationAsync(

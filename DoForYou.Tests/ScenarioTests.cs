@@ -57,6 +57,60 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task PaymentUrlRetry_CreatesUniquePaystackAttempts()
+    {
+        using var context = CreateContext(nameof(PaymentUrlRetry_CreatesUniquePaystackAttempts));
+        var creator = CreateUser(1, "creator", true, "creator-payments@test.com");
+        context.Users.Add(creator);
+
+        var task = new TaskEntity
+        {
+            TaskId = "DFY-PAY-RETRY-1",
+            TaskName = "Payment retry test",
+            TaskDescription = "Testing unique Paystack payment attempts",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 500m,
+            CommissionAmount = 75m,
+            PayoutAmount = 425m,
+            PaymentStatus = "Pending",
+            TaskStatus = "PendingPayment",
+            EscrowStatus = "pending",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, creator.Id);
+
+        var first = await controller.GetPaymentUrl(task.TaskId);
+        var second = await controller.GetPaymentUrl(task.TaskId);
+
+        Assert.True(((ApiResponse<object>)((OkObjectResult)first.Result!).Value!).Success);
+        Assert.True(((ApiResponse<object>)((OkObjectResult)second.Result!).Value!).Success);
+
+        var attempts = await context.PaymentAttempts
+            .Where(a => a.TaskId == task.Id)
+            .OrderBy(a => a.CreatedAt)
+            .ToListAsync();
+
+        Assert.Equal(2, attempts.Count);
+        Assert.NotEqual(attempts[0].Reference, attempts[1].Reference);
+        Assert.All(attempts, attempt =>
+        {
+            Assert.Equal("Paystack", attempt.Provider);
+            Assert.Equal(task.Budget, attempt.Amount);
+            Assert.Equal("Pending", attempt.Status);
+        });
+
+        var refreshed = await context.Tasks.SingleAsync(t => t.Id == task.Id);
+        Assert.Equal(attempts[1].Reference, refreshed.PaymentReference);
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task RunnerCanClaimPostedTask()
     {
         using var context = CreateContext(nameof(RunnerCanClaimPostedTask));
@@ -138,9 +192,9 @@ public class ScenarioTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingOzowPayout()
+    public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingPaystackPayout()
     {
-        using var context = CreateContext(nameof(EscrowRelease_CreatesPendingOzowPayout));
+        using var context = CreateContext(nameof(EscrowRelease_CreatesPendingPaystackPayout));
         var poster = CreateUser(1, "creator", true, "poster@test.com");
         var runner = CreateUser(2, "runner", true, "runner@test.com");
         context.Users.AddRange(poster, runner);
@@ -191,7 +245,7 @@ public class ScenarioTests
         Assert.Equal(bankAccount.Id, payout.BankAccountId);
         Assert.Equal(680m, payout.Amount);
         Assert.Equal("Pending", payout.Status);
-        Assert.Equal("Ozow", payout.Provider);
+        Assert.Equal("Paystack", payout.Provider);
         Assert.Equal("DFY-PAYOUT-DFY-3", payout.MerchantReference);
 
         Assert.Equal("released", refreshedTask.EscrowStatus);
@@ -214,44 +268,51 @@ private static AppDbContext CreateContext(string name)
         return new AppDbContext(options);
     }
 
-    private sealed class FakeOzowPaymentService : IOzowPaymentService
+    private sealed class FakePaystackPaymentProvider : IPaymentProvider
     {
-        public Task<OzowPaymentResult> CreatePaymentAsync(
+        public Task<PaymentCreationResult> CreatePaymentAsync(
             TaskEntity task,
             User customer,
             CancellationToken cancellationToken = default)
         {
             var reference = string.IsNullOrWhiteSpace(task.PaymentReference)
-                ? $"DFY-PAY-{task.TaskId}"
+                ? $"dfy_pay_{task.TaskId}".ToLowerInvariant()
                 : task.PaymentReference;
 
             return System.Threading.Tasks.Task.FromResult(
-                new OzowPaymentResult(
+                new PaymentCreationResult(
                     true,
-                    $"https://example.test/ozow/{reference}",
+                    $"https://checkout.paystack.test/{reference}",
                     reference,
                     null));
         }
 
-        public Task<OzowTransactionResult> GetTransactionByReferenceAsync(
+        public Task<PaymentVerificationResult> VerifyPaymentAsync(
             string transactionReference,
             CancellationToken cancellationToken = default)
         {
             return System.Threading.Tasks.Task.FromResult(
-                new OzowTransactionResult(
+                new PaymentVerificationResult(
                     true,
-                    "TEST-OZOW-TRANSACTION",
-                    "Complete",
-                    null,
+                    true,
+                    "TEST-PAYSTACK-TRANSACTION",
+                    "success",
+                    500m,
                     transactionReference,
                     null));
         }
 
-        public bool VerifyNotificationHash(
-            IReadOnlyDictionary<string, string?> fields)
+        public Task<RefundResult> CreateRefundAsync(
+            string transactionId,
+            decimal amount,
+            string reason,
+            CancellationToken cancellationToken = default)
         {
-            return true;
+            return System.Threading.Tasks.Task.FromResult(
+                new RefundResult(true, "REF-TEST", transactionId, amount, "processed", null));
         }
+
+        public bool VerifyWebhookSignature(string rawBody, string? signature) => true;
     }
 
     private static TasksController CreateTasksController(AppDbContext context, int userId)
@@ -271,7 +332,8 @@ private static AppDbContext CreateContext(string name)
             new EscrowService(context, NullLogger<EscrowService>.Instance),
             new NoOpNotificationService(),
             configuration,
-            new FakeOzowPaymentService());
+            new FakePaystackPaymentProvider(),
+            new UserPolicyService());
 
         controller.ControllerContext = new ControllerContext
         {

@@ -78,6 +78,7 @@ public class OzowPayoutProcessorService(
             await context.Payouts
                 .Include(p => p.Task)
                 .Where(p =>
+                    p.Provider == "Ozow" &&
                     p.Status == "Processing" &&
                     p.ProcessingAt.HasValue &&
                     p.ProcessingAt < staleCutoff &&
@@ -428,6 +429,7 @@ public class OzowPayoutProcessorService(
                 .Include(p => p.Task)
                 .Include(p => p.BankAccount)
                 .Where(p =>
+                    p.Provider == "Ozow" &&
                     p.Status == "Pending" &&
                     p.Task.PayoutStatus == "Pending" &&
                     (
@@ -482,6 +484,7 @@ public class OzowPayoutProcessorService(
             var claimed = await context.Payouts
                 .Where(p =>
                     p.Id == payout.Id &&
+                    p.Provider == "Ozow" &&
                     p.Status == "Pending" &&
                     p.Task.PayoutStatus == "Pending" &&
                     (p.NextAttemptAt == null || p.NextAttemptAt <= now))

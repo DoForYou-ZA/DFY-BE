@@ -9,9 +9,9 @@ namespace DoForYou.Tests;
 public class CreatorConfirmation24HourTests
 {
     [Fact]
-    public async System.Threading.Tasks.Task ExpiredCreatorConfirmation_AutoReleasesEscrowWithoutOzowPayment()
+    public async System.Threading.Tasks.Task ExpiredCreatorConfirmation_AutoReleasesEscrowWithoutPaymentProvider()
     {
-        using var context = CreateContext(nameof(ExpiredCreatorConfirmation_AutoReleasesEscrowWithoutOzowPayment));
+        using var context = CreateContext(nameof(ExpiredCreatorConfirmation_AutoReleasesEscrowWithoutPaymentProvider));
 
         var creator = CreateUser(1, "creator", "creator@test.com");
         var runner = CreateUser(2, "runner", "runner@test.com");
@@ -53,7 +53,7 @@ public class CreatorConfirmation24HourTests
         context.Tasks.Add(task);
         await context.SaveChangesAsync();
 
-        // Deliberately do not invoke IOzowPaymentService. The test starts after
+        // Deliberately do not invoke IPaymentProvider. The test starts after
         // payment is already secured in escrow and verifies the 24-hour release path.
         var escrow = new EscrowService(context, NullLogger<EscrowService>.Instance);
 
@@ -73,7 +73,7 @@ public class CreatorConfirmation24HourTests
         Assert.Equal(runner.Id, payout.RunnerId);
         Assert.Equal(680m, payout.Amount);
         Assert.Equal("Pending", payout.Status);
-        Assert.Equal("Ozow", payout.Provider);
+        Assert.Equal("Paystack", payout.Provider);
     }
 
     [Fact]
