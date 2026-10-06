@@ -44,7 +44,8 @@ public sealed class PayoutProcessorService(
             .Where(p =>
                 p.Provider == "Paystack" &&
                 (p.Status == "Pending" ||
-                 p.Status == "Processing") &&
+                 p.Status == "Processing" ||
+                 p.Status == "AwaitingFunds") &&
                 (p.NextAttemptAt == null || p.NextAttemptAt <= DateTime.UtcNow))
             .OrderBy(p => p.CreatedAt)
             .Take(25)
@@ -55,7 +56,7 @@ public sealed class PayoutProcessorService(
             if (cancellationToken.IsCancellationRequested)
                 break;
 
-            if (payout.Status == "Pending")
+            if (payout.Status is "Pending" or "AwaitingFunds")
                 await SubmitPendingPayout(
                     context,
                     provider,
@@ -129,12 +130,17 @@ public sealed class PayoutProcessorService(
         }
         else if (result.Retryable)
         {
-            // A failed HTTP request is ambiguous. Keep the same merchant reference
-            // and reconcile before another submission to avoid double payment.
-            payout.Status = "Processing";
+            // Balance shortages are recoverable: wait for funds and retry the exact
+            // same merchant reference later. Other ambiguous provider/network errors
+            // remain Processing and are reconciled before any new submission.
+            var awaitingFunds = result.Error?.Contains("balance", StringComparison.OrdinalIgnoreCase) == true &&
+                                (result.Error.Contains("not enough", StringComparison.OrdinalIgnoreCase) ||
+                                 result.Error.Contains("insufficient", StringComparison.OrdinalIgnoreCase));
+
+            payout.Status = awaitingFunds ? "AwaitingFunds" : "Processing";
             payout.ProcessingError = result.Error;
-            payout.NextAttemptAt = DateTime.UtcNow.AddMinutes(5);
-            payout.Task.PayoutStatus = "Processing";
+            payout.NextAttemptAt = DateTime.UtcNow.AddMinutes(awaitingFunds ? 5 : 5);
+            payout.Task.PayoutStatus = awaitingFunds ? "AwaitingFunds" : "Processing";
         }
         else
         {
