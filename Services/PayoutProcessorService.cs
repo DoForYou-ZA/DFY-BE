@@ -113,6 +113,19 @@ public sealed class PayoutProcessorService(
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(payout.BankAccount.ProviderReference))
+        {
+            payout.Status = "AwaitingBankDetails";
+            payout.FailureReason = "Runner bank account is missing its Paystack recipient reference.";
+            payout.NextAttemptAt = null;
+            payout.Task.PayoutStatus = "AwaitingBankDetails";
+            payout.Task.TaskStatus = "PayoutPending";
+            payout.UpdatedAt = DateTime.UtcNow;
+            payout.Task.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
         var result = await provider.CreatePayoutAsync(
             payout,
             payout.BankAccount,

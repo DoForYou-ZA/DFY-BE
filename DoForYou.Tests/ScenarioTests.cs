@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using DoForYou.API.Controllers;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
@@ -117,6 +118,7 @@ public class ScenarioTests
         var poster = CreateUser(1, "creator", true, "poster@test.com");
         var runner = CreateUser(2, "runner", true, "runner@test.com");
         context.Users.AddRange(poster, runner);
+        context.BankAccounts.Add(CreateVerifiedBankAccount(runner.Id));
 
         var task = new TaskEntity
         {
@@ -139,7 +141,7 @@ public class ScenarioTests
         await context.SaveChangesAsync();
 
         var controller = CreateTasksController(context, runner.Id);
-        var result = await controller.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner Name", HelperContact = "0820000000" });
+        var result = await controller.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner Name", HelperContact = "0820000000", TermsAccepted = true });
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ApiResponse<bool>>(ok.Value);
 
@@ -150,6 +152,109 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task RunnerCannotClaimPostedTaskWithoutPaystackRecipient()
+    {
+        using var context = CreateContext(nameof(RunnerCannotClaimPostedTaskWithoutPaystackRecipient));
+        var poster = CreateUser(1, "creator", true, "poster@test.com");
+        var runner = CreateUser(2, "runner", true, "runner@test.com");
+        context.Users.AddRange(poster, runner);
+        context.BankAccounts.Add(new BankAccount
+        {
+            UserId = runner.Id,
+            BankName = "Legacy Test Bank",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Test Runner",
+            BranchCode = "123456",
+            AccountType = "Savings",
+            IsVerified = true,
+            IsActive = true
+        });
+
+        var task = new TaskEntity
+        {
+            TaskId = "DFY-NO-BANK",
+            TaskDescription = "Task requiring verified payout destination",
+            Category = "Home",
+            Area = "Cape Town",
+            DateNeeded = DateTime.UtcNow.AddDays(3),
+            Budget = 200m,
+            PaymentStatus = "EscrowHeld",
+            TaskStatus = "Posted",
+            EscrowStatus = "held",
+            CreatedByUserId = poster.Id
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, runner.Id);
+        var result = await controller.ClaimTask(task.TaskId, new ClaimTaskRequest
+        {
+            HelperName = "Runner Name",
+            HelperContact = "0820000000",
+            TermsAccepted = true
+        });
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(conflict.Value);
+        Assert.False(response.Success);
+        Assert.Equal("PAYOUT_BANK_ACCOUNT_REQUIRED", response.Error);
+        Assert.Equal("Posted", (await context.Tasks.SingleAsync(t => t.Id == task.Id)).TaskStatus);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task MyCompletedTasks_ReturnsRequestedPageAndFindsLinkedTaskPage()
+    {
+        using var context = CreateContext(nameof(MyCompletedTasks_ReturnsRequestedPageAndFindsLinkedTaskPage));
+        var creator = CreateUser(1, "creator", true, "creator@test.com");
+        var runner = CreateUser(2, "runner", true, "runner@test.com");
+        context.Users.AddRange(creator, runner);
+        for (var index = 1; index <= 12; index++)
+        {
+            context.Tasks.Add(new TaskEntity
+            {
+                TaskId = $"DFY-COMPLETED-{index}",
+                TaskName = $"Task {index}",
+                TaskDescription = $"Completed task {index}",
+                Category = "Other",
+                Area = "Pretoria",
+                DateNeeded = DateTime.UtcNow.AddDays(1),
+                Budget = 200m,
+                PayoutAmount = 170m,
+                PaymentStatus = "EscrowReleased",
+                TaskStatus = "RunnerPaid",
+                PayoutStatus = "Completed",
+                EscrowStatus = "released",
+                CreatedByUserId = creator.Id,
+                AcceptedByUserId = runner.Id,
+                CompletedAt = DateTime.UtcNow.AddDays(-index)
+            });
+        }
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, runner.Id);
+        var secondPageResult = await controller.GetMyCompletedTasks(page: 2, pageSize: 5);
+        var secondPageResponse = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(secondPageResult.Result).Value);
+        var secondPage = JsonSerializer.SerializeToElement(secondPageResponse.Data);
+        Assert.Equal(12, secondPage.GetProperty("count").GetInt32());
+        Assert.Equal(2, secondPage.GetProperty("page").GetInt32());
+        Assert.Equal(3, secondPage.GetProperty("totalPages").GetInt32());
+        Assert.Equal(5, secondPage.GetProperty("tasks").GetArrayLength());
+
+        var linkedTaskResult = await controller.GetMyCompletedTasks(
+            page: 1,
+            pageSize: 5,
+            taskId: "DFY-COMPLETED-12");
+        var linkedTaskResponse = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(linkedTaskResult.Result).Value);
+        var linkedTaskPage = JsonSerializer.SerializeToElement(linkedTaskResponse.Data);
+        Assert.Equal(3, linkedTaskPage.GetProperty("page").GetInt32());
+        Assert.Contains(
+            linkedTaskPage.GetProperty("tasks").EnumerateArray(),
+            task => task.GetProperty("taskId").GetString() == "DFY-COMPLETED-12");
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task DuplicateClaim_IsRejected()
     {
         using var context = CreateContext(nameof(DuplicateClaim_IsRejected));
@@ -157,6 +262,9 @@ public class ScenarioTests
         var runner1 = CreateUser(2, "runner", true, "runner1@test.com");
         var runner2 = CreateUser(3, "runner", true, "runner2@test.com");
         context.Users.AddRange(poster, runner1, runner2);
+        context.BankAccounts.AddRange(
+            CreateVerifiedBankAccount(runner1.Id),
+            CreateVerifiedBankAccount(runner2.Id));
 
         var task = new TaskEntity
         {
@@ -179,16 +287,16 @@ public class ScenarioTests
         await context.SaveChangesAsync();
 
         var controller1 = CreateTasksController(context, runner1.Id);
-        var first = await controller1.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner One", HelperContact = "0811111111" });
+        var first = await controller1.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner One", HelperContact = "0811111111", TermsAccepted = true });
         Assert.True(((ApiResponse<bool>)((OkObjectResult)first.Result!).Value!).Success);
 
         var controller2 = CreateTasksController(context, runner2.Id);
-        var second = await controller2.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner Two", HelperContact = "0822222222" });
-        var ok = Assert.IsType<OkObjectResult>(second.Result);
-        var response = Assert.IsType<ApiResponse<bool>>(ok.Value);
+        var second = await controller2.ClaimTask(task.TaskId, new ClaimTaskRequest { HelperName = "Runner Two", HelperContact = "0822222222", TermsAccepted = true });
+        var conflict = Assert.IsType<ConflictObjectResult>(second.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(conflict.Value);
 
         Assert.False(response.Success);
-        Assert.Equal("Task not available", response.Message);
+        Assert.Equal("TASK_ALREADY_CLAIMED", response.Error);
     }
 
     [Fact]
@@ -312,6 +420,12 @@ private static AppDbContext CreateContext(string name)
                 new RefundResult(true, "REF-TEST", transactionId, amount, "processed", null));
         }
 
+        public Task<IReadOnlyList<RefundStatusResult>> GetRefundsByTransactionIdAsync(
+            string transactionId,
+            CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<RefundStatusResult>>(
+                Array.Empty<RefundStatusResult>());
+
         public bool VerifyWebhookSignature(string rawBody, string? signature) => true;
     }
 
@@ -358,6 +472,8 @@ private static AppDbContext CreateContext(string name)
             LastName = "User",
             Email = email,
             PhoneNumber = "0712345678",
+            IdNumber = "8001015009087",
+            DateOfBirth = new DateTime(1980, 1, 1),
             UserType = userType,
             ProfileCompleted = profileCompleted,
             Address = "123 Test Street",
@@ -367,12 +483,27 @@ private static AppDbContext CreateContext(string name)
         };
     }
 
+    private static BankAccount CreateVerifiedBankAccount(int userId) => new()
+    {
+        UserId = userId,
+        BankName = "Test Bank",
+        BankCode = "TEST",
+        ProviderReference = $"RCP_TEST_{userId}",
+        AccountNumber = "1234567890",
+        AccountHolderName = "Test Runner",
+        BranchCode = "123456",
+        AccountType = "Savings",
+        IsVerified = true,
+        IsActive = true
+    };
+
     private sealed class NoOpNotificationService : INotificationService
     {
         public TaskResult CreateNotificationAsync(int userId, string type, string title, string message, int? relatedTaskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyTaskClaimedAsync(int creatorId, string taskDescription, string runnerName) => TaskResult.CompletedTask;
         public TaskResult NotifyTaskCompletedAsync(int creatorId, string taskDescription, string runnerName) => TaskResult.CompletedTask;
         public TaskResult NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount) => TaskResult.CompletedTask;
+        public TaskResult NotifyPayoutCompletedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyNewMessageAsync(int recipientId, string taskDescription, string senderName, int? taskId = null) => TaskResult.CompletedTask;
         public TaskResult NotifyAdminsAsync(string type, string title, string message, int? relatedTaskId = null) => TaskResult.CompletedTask;
     }

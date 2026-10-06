@@ -187,7 +187,7 @@ public class BankingController : ControllerBase
                 accountNumber = MaskAccountNumber(ba.AccountNumber),
                 accountHolderName = ba.AccountHolderName,
                 accountType = ba.AccountType,
-                isVerified = ba.IsVerified,
+                isVerified = ba.IsVerified && !string.IsNullOrWhiteSpace(ba.ProviderReference),
                 createdAt = ba.CreatedAt
             })
             .Cast<object>()

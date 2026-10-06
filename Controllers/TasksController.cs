@@ -305,6 +305,20 @@ public class TasksController : ControllerBase
         if (task.PaymentStatus != "EscrowHeld")
             return Conflict(new ApiResponse<bool> { Success = false, Error = "PAYMENT_NOT_SECURED", Message = "This task cannot be accepted until the creator's payment is secured." });
 
+        var hasVerifiedPayoutAccount = await _context.BankAccounts.AnyAsync(b =>
+            b.UserId == userId.Value &&
+            b.IsActive &&
+            b.IsVerified &&
+            b.ProviderReference != null &&
+            b.ProviderReference != "");
+        if (!hasVerifiedPayoutAccount)
+            return Conflict(new ApiResponse<bool>
+            {
+                Success = false,
+                Error = "PAYOUT_BANK_ACCOUNT_REQUIRED",
+                Message = "Add and verify a Paystack bank account in Payout Settings before accepting a task."
+            });
+
         // Atomic claim: exactly one runner can transition the posted task to Claimed.
         var claimedAt = DateTime.UtcNow;
         var affected = await _context.Tasks
@@ -656,13 +670,75 @@ public class TasksController : ControllerBase
     }
 
     [HttpGet("my-completed")]
-    public async Task<ActionResult<ApiResponse<List<object>>>> GetMyCompletedTasks()
+    public async Task<ActionResult<ApiResponse<object>>> GetMyCompletedTasks(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? taskId = null)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var tasks = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.AcceptedByUserId == userId && (t.TaskStatus == "AwaitingConfirmation" || t.TaskStatus == "Completed" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid" || t.TaskStatus == "PayoutFailed")).OrderByDescending(t => t.CompletedAt)
-            .Select(t => new { id = t.Id, taskId = t.TaskId, title = t.TaskDescription, category = t.Category, location = t.Area, budget = t.Budget, payoutAmount = t.PayoutAmount, status = t.TaskStatus.ToLower(), paymentStatus = t.PaymentStatus, payoutStatus = t.PayoutStatus, payoutReference = t.PayoutReference, payoutInitiatedAt = t.PayoutInitiatedAt, payoutCompletedAt = t.PayoutCompletedAt, completedAt = t.CompletedAt, creatorName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}" }).Cast<object>().ToListAsync();
-        return Ok(new ApiResponse<List<object>> { Success = true, Data = tasks });
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 50);
+
+        var query = _context.Tasks
+            .Where(t => t.AcceptedByUserId == userId &&
+                        (t.TaskStatus == "AwaitingConfirmation" ||
+                         t.TaskStatus == "Completed" ||
+                         t.TaskStatus == "PayoutPending" ||
+                         t.TaskStatus == "RunnerPaid" ||
+                         t.TaskStatus == "PayoutFailed"));
+
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        if (!string.IsNullOrWhiteSpace(taskId))
+        {
+            var target = await query
+                .Where(t => t.TaskId == taskId)
+                .Select(t => new { t.Id, t.CompletedAt })
+                .FirstOrDefaultAsync();
+
+            if (target != null)
+            {
+                var tasksBeforeTarget = await query.CountAsync(t =>
+                    (target.CompletedAt == null && t.CompletedAt != null) ||
+                    (t.CompletedAt.HasValue == target.CompletedAt.HasValue &&
+                     (t.CompletedAt > target.CompletedAt ||
+                      (t.CompletedAt == target.CompletedAt && t.Id > target.Id))));
+                page = tasksBeforeTarget / pageSize + 1;
+            }
+        }
+
+        var tasks = await query
+            .OrderBy(t => t.CompletedAt == null)
+            .ThenByDescending(t => t.CompletedAt)
+            .ThenByDescending(t => t.Id)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(t => new
+            {
+                id = t.Id,
+                taskId = t.TaskId,
+                title = t.TaskDescription,
+                category = t.Category,
+                location = t.Area,
+                budget = t.Budget,
+                payoutAmount = t.PayoutAmount,
+                status = t.TaskStatus.ToLower(),
+                paymentStatus = t.PaymentStatus,
+                payoutStatus = t.PayoutStatus,
+                payoutReference = t.PayoutReference,
+                payoutInitiatedAt = t.PayoutInitiatedAt,
+                payoutCompletedAt = t.PayoutCompletedAt,
+                completedAt = t.CompletedAt,
+                creatorName = $"{t.CreatedByUser.FirstName} {t.CreatedByUser.LastName}"
+            })
+            .ToListAsync();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new { tasks, count = totalCount, page, pageSize, totalPages }
+        });
     }
 
     [HttpPost("{taskId}/cancel")]

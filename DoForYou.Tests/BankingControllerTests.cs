@@ -59,7 +59,8 @@ public class BankingControllerTests
                     AccountNumber = "1234567890",
                     AccountHolderName = "John Runner",
                     AccountType = "Savings"
-                });
+                },
+                CancellationToken.None);
 
         var ok =
             Assert.IsType<OkObjectResult>(result.Result);
@@ -121,7 +122,8 @@ public class BankingControllerTests
                     AccountHolderName = "Runner User",
                     BranchCode = "123456",
                     AccountType = "Savings"
-                });
+                },
+                CancellationToken.None);
 
         var ok =
             Assert.IsType<OkObjectResult>(result.Result);
@@ -162,8 +164,8 @@ public class BankingControllerTests
         var banks = new FakePaystackBankProvider(
             new[]
             {
-                new OzowBank(
-                    "BANK-GROUP-123",
+                new SupportedBank(
+                    "632005",
                     "Canonical Bank",
                     "123456")
             });
@@ -186,7 +188,8 @@ public class BankingControllerTests
                     AccountHolderName = "Jane Runner",
                     BranchCode = "999999",
                     AccountType = "Savings"
-                });
+                },
+                CancellationToken.None);
 
         var ok =
             Assert.IsType<OkObjectResult>(result.Result);
@@ -202,6 +205,89 @@ public class BankingControllerTests
         Assert.Null(account.VerifiedAt);
 
         Assert.Equal(1, banking.VerifyCallCount);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task VerifyBankAccount_CreatesRecipientAndRetriesPriorMissingRecipientPayout()
+    {
+        using var context = CreateContext();
+
+        var creator = CreateUser(13);
+        var runner = CreateUser(14);
+        context.Users.AddRange(creator, runner);
+
+        var bankAccount = new BankAccount
+        {
+            UserId = runner.Id,
+            BankName = "Canonical Bank",
+            BankCode = "632005",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Runner User",
+            BranchCode = "123456",
+            AccountType = "Savings",
+            IsVerified = true,
+            IsActive = true
+        };
+        context.BankAccounts.Add(bankAccount);
+
+        var task = new DoForYou.API.Models.Task
+        {
+            TaskId = "DFY-RECOVER-PAYOUT",
+            TaskName = "Payout retry test",
+            TaskDescription = "Recover payout when recipient is added",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            PayoutAmount = 170m,
+            PaymentStatus = "EscrowReleased",
+            TaskStatus = "PayoutFailed",
+            PayoutStatus = "Failed",
+            EscrowStatus = "released",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var payout = new Payout
+        {
+            TaskId = task.Id,
+            Task = task,
+            RunnerId = runner.Id,
+            BankAccountId = bankAccount.Id,
+            BankAccount = bankAccount,
+            Amount = 170m,
+            Status = "Failed",
+            Provider = "Paystack",
+            MerchantReference = "DFY-PAYOUT-DFY-RECOVER-PAYOUT",
+            FailureReason = "Runner bank account is missing its Paystack recipient reference."
+        };
+        context.Payouts.Add(payout);
+        await context.SaveChangesAsync();
+
+        var banking = new BankingService(
+            new FakePaystackBankProvider(
+                new[] { new SupportedBank("632005", "Canonical Bank", "123456") }),
+            context);
+        var controller = CreateController(
+            context,
+            runner.Id,
+            banking,
+            new FakePaystackBankProvider(
+                new[] { new SupportedBank("632005", "Canonical Bank", "123456") }));
+
+        var result = await controller.VerifyBankAccount(bankAccount.Id, CancellationToken.None);
+
+        var response = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Success);
+        Assert.Equal("RCP_TEST", bankAccount.ProviderReference);
+        Assert.Equal("Pending", payout.Status);
+        Assert.Null(payout.FailureReason);
+        Assert.Equal("DFY-PAYOUT-DFY-RECOVER-PAYOUT", payout.MerchantReference);
+        Assert.Equal("Pending", task.PayoutStatus);
+        Assert.Equal("PayoutPending", task.TaskStatus);
     }
 
     private static AppDbContext CreateContext()

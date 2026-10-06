@@ -1,4 +1,6 @@
 using DoForYou.API.Models;
+using DoForYou.API.Data;
+using Microsoft.EntityFrameworkCore;
 using Task = System.Threading.Tasks.Task;
 
 namespace DoForYou.API.Services;
@@ -21,7 +23,9 @@ public interface IBankingService
         CancellationToken cancellationToken = default);
 }
 
-public sealed class BankingService(IBankProvider bankProvider) : IBankingService
+public sealed class BankingService(
+    IBankProvider bankProvider,
+    AppDbContext context) : IBankingService
 {
     public Task<bool> ValidateBankAccountAsync(
         string bankName,
@@ -48,6 +52,29 @@ public sealed class BankingService(IBankProvider bankProvider) : IBankingService
             user,
             bankAccount,
             cancellationToken);
+
+        if (result.Success && !string.IsNullOrWhiteSpace(result.ProviderReference))
+        {
+            var payouts = await context.Payouts
+                .Include(p => p.Task)
+                .Where(p =>
+                    p.BankAccountId == bankAccount.Id &&
+                    (p.Status == "Failed" || p.Status == "AwaitingBankDetails") &&
+                    p.FailureReason == "Runner bank account is missing its Paystack recipient reference.")
+                .ToListAsync(cancellationToken);
+
+            foreach (var payout in payouts)
+            {
+                payout.Status = "Pending";
+                payout.FailureReason = null;
+                payout.ProcessingError = null;
+                payout.NextAttemptAt = null;
+                payout.UpdatedAt = DateTime.UtcNow;
+                payout.Task.PayoutStatus = "Pending";
+                payout.Task.TaskStatus = "PayoutPending";
+                payout.Task.UpdatedAt = DateTime.UtcNow;
+            }
+        }
 
         return new BankVerificationResult(
             result.Success,

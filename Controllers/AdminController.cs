@@ -18,13 +18,15 @@ public class AdminController : ControllerBase
     private readonly IEscrowService _escrowService;
     private readonly IUserPolicyService _userPolicyService;
     private readonly IPaymentProvider _paymentProvider;
+    private readonly IBankingService _bankingService;
 
-    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IPaymentProvider paymentProvider)
+    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IPaymentProvider paymentProvider, IBankingService bankingService)
     {
         _context = context;
         _escrowService = escrowService;
         _userPolicyService = userPolicyService;
         _paymentProvider = paymentProvider;
+        _bankingService = bankingService;
     }
 
     private int? GetAdminId() =>
@@ -847,15 +849,33 @@ public class AdminController : ControllerBase
     [HttpPatch("bank-accounts/{id}/verify")]
     public async Task<ActionResult<ApiResponse<bool>>> VerifyBankAccount(int id)
     {
-        var account = await _context.BankAccounts.FindAsync(id);
+        var account = await _context.BankAccounts
+            .Include(b => b.User)
+            .FirstOrDefaultAsync(b => b.Id == id);
         if (account == null)
             return NotFound(new ApiResponse<bool> { Success = false, Message = "Bank account not found" });
 
-        account.IsVerified = true;
-        account.VerifiedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
-        await WriteAuditAsync("VerifyBankAccount", "BankAccount", id, "Unverified", "Verified");
+        var verification = await _bankingService.VerifyBankAccountAsync(
+            account.User,
+            account,
+            HttpContext.RequestAborted);
 
-        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Bank account verified" });
+        account.IsVerified = verification.Success;
+        account.VerifiedAt = verification.Success ? DateTime.UtcNow : null;
+        account.ProviderReference = verification.ProviderReference;
+        await _context.SaveChangesAsync();
+        await WriteAuditAsync(
+            verification.Success ? "VerifyBankAccount" : "BankAccountVerificationFailed",
+            "BankAccount",
+            id,
+            null,
+            verification.Message);
+
+        return Ok(new ApiResponse<bool>
+        {
+            Success = verification.Success,
+            Data = verification.Success,
+            Message = verification.Message
+        });
     }
 }

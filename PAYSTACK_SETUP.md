@@ -53,6 +53,8 @@ When a runner adds a bank account:
 
 Existing Ozow-verified bank accounts do not automatically have a Paystack recipient reference. They must be re-verified through the DFY bank-account verification flow before a Paystack payout can be made.
 
+An account marked verified without a Paystack recipient is shown as requiring verification in the runner's Payout Settings. After Paystack verification creates the recipient, payouts that failed specifically because the recipient was missing are automatically queued again with their original merchant reference. Do not manually edit payout status in the database.
+
 ## Payment lifecycle
 
 Creator:
