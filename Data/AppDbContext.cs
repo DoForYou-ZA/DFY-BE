@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<Models.Task> Tasks { get; set; }
     public DbSet<Category> Categories { get; set; }
     public DbSet<Payment> Payments { get; set; }
+    public DbSet<PaymentAttempt> PaymentAttempts { get; set; } = null!;
     public DbSet<Rating> Ratings { get; set; }
     public DbSet<TaskMessage> TaskMessages { get; set; }
     public DbSet<TaskProgressUpdate> TaskProgressUpdates { get; set; }
@@ -65,6 +66,21 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.AcceptedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
 
+
+        modelBuilder.Entity<PaymentAttempt>()
+            .HasIndex(p => p.Reference)
+            .IsUnique();
+
+        modelBuilder.Entity<PaymentAttempt>()
+            .HasIndex(p => p.TransactionId)
+            .IsUnique()
+            .HasFilter(""TransactionId" IS NOT NULL");
+
+        modelBuilder.Entity<PaymentAttempt>()
+            .HasOne(p => p.Task)
+            .WithMany()
+            .HasForeignKey(p => p.TaskId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Payout>()
             .HasIndex(p => p.MerchantReference)
