@@ -280,6 +280,14 @@ public sealed class PaystackProvider(
                 return Array.Empty<SupportedBank>();
 
             return data.EnumerateArray()
+                // DFY runner payouts currently validate personal South African accounts.
+                // Paystack exposes supported_types per bank; don't show banks that cannot
+                // validate the account type we actually submit to /bank/validate.
+                .Where(x =>
+                    x.TryGetProperty("supported_types", out var supportedTypes) &&
+                    supportedTypes.ValueKind == JsonValueKind.Array &&
+                    supportedTypes.EnumerateArray().Any(type =>
+                        string.Equals(type.GetString(), "personal", StringComparison.OrdinalIgnoreCase)))
                 .Select(x => new SupportedBank(
                     GetString(x, "code") ?? string.Empty,
                     GetString(x, "name") ?? string.Empty,
@@ -306,15 +314,19 @@ public sealed class PaystackProvider(
         if (string.IsNullOrWhiteSpace(bankAccount.BankCode))
             return new(false, "A Paystack-supported bank must be selected.");
 
+        var accountType = NormalizeVerificationAccountType(bankAccount.AccountType);
+        if (accountType != "personal")
+            return new(false, "Only personal runner bank accounts are currently supported for direct payouts.");
+
         var payload = new
         {
             bank_code = bankAccount.BankCode,
             country_code = "ZA",
-            account_number = bankAccount.AccountNumber,
-            account_name = bankAccount.AccountHolderName,
-            account_type = "personal",
+            account_number = bankAccount.AccountNumber.Trim(),
+            account_name = NormalizeAccountHolderName(bankAccount.AccountHolderName),
+            account_type = accountType,
             document_type = "identityNumber",
-            document_number = user.IdNumber
+            document_number = user.IdNumber.Trim()
         };
 
         try
@@ -334,17 +346,43 @@ public sealed class PaystackProvider(
             var verified = GetBool(data, "verified");
             var credits = !data.TryGetProperty("accountAcceptsCredits", out _)
                 || GetBool(data, "accountAcceptsCredits");
+            var holderMatch = GetNullableBool(data, "accountHolderMatch");
+            var accountOpen = GetNullableBool(data, "accountOpen");
+            var olderThanThreeMonths = GetNullableBool(data, "accountOpenForMoreThanThreeMonths");
+            var acceptsDebits = GetNullableBool(data, "accountAcceptsDebits");
+            var verificationMessage = GetString(data, "verificationMessage");
+            var paystackMessage = GetString(root, "message");
+
+            logger.LogInformation(
+                "Paystack bank validation result for bank account {BankAccountId}: verified={Verified}, holderMatch={HolderMatch}, acceptsCredits={AcceptsCredits}, acceptsDebits={AcceptsDebits}, accountOpen={AccountOpen}, olderThanThreeMonths={OlderThanThreeMonths}, message={VerificationMessage}",
+                bankAccount.Id,
+                verified,
+                holderMatch,
+                credits,
+                acceptsDebits,
+                accountOpen,
+                olderThanThreeMonths,
+                verificationMessage ?? paystackMessage ?? "none");
 
             if (!verified)
             {
-                var reason = GetString(data, "verificationMessage");
-                return new(false, string.IsNullOrWhiteSpace(reason)
-                    ? "Paystack could not verify this bank account for payouts. Check the bank and account details, then try again."
-                    : $"Paystack could not verify this bank account for payouts: {reason}. Confirm the selected bank, account number, account-holder name, and profile ID match the bank's records.");
+                return new(false, FormatBankVerificationFailure(
+                    verificationMessage,
+                    holderMatch,
+                    credits,
+                    acceptsDebits,
+                    accountOpen,
+                    olderThanThreeMonths));
             }
 
             if (!credits)
-                return new(false, "Paystack reports this account cannot receive credits, so it cannot be used for payouts.");
+                return new(false, FormatBankVerificationFailure(
+                    "The account cannot receive credits.",
+                    holderMatch,
+                    credits,
+                    acceptsDebits,
+                    accountOpen,
+                    olderThanThreeMonths));
 
             var recipient = await CreateRecipientAsync(
                 bankAccount,
@@ -495,6 +533,51 @@ public sealed class PaystackProvider(
             logger.LogWarning(ex, "Paystack payout reconciliation failed for {Reference}", payout.MerchantReference);
             return new(false, false, null, null, "Unable to reconcile Paystack payout.");
         }
+    }
+
+    private static string NormalizeVerificationAccountType(string? accountType) =>
+        string.Equals(accountType, "business", StringComparison.OrdinalIgnoreCase)
+            ? "business"
+            : "personal";
+
+    private static string NormalizeAccountHolderName(string value) =>
+        string.Join(' ', value.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+
+    private static bool? GetNullableBool(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value)
+            ? value.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                _ => null
+            }
+            : null;
+
+    private static string FormatBankVerificationFailure(
+        string? reason,
+        bool? holderMatch,
+        bool? acceptsCredits,
+        bool? acceptsDebits,
+        bool? accountOpen,
+        bool? olderThanThreeMonths)
+    {
+        var checks = new List<string>();
+        if (holderMatch.HasValue)
+            checks.Add($"account holder match: {(holderMatch.Value ? "yes" : "no")}");
+        if (acceptsCredits.HasValue)
+            checks.Add($"receives credits: {(acceptsCredits.Value ? "yes" : "no")}");
+        if (accountOpen.HasValue)
+            checks.Add($"account open: {(accountOpen.Value ? "yes" : "no")}");
+        if (olderThanThreeMonths.HasValue)
+            checks.Add($"open > 3 months: {(olderThanThreeMonths.Value ? "yes" : "no")}");
+        if (acceptsDebits.HasValue)
+            checks.Add($"accepts debits: {(acceptsDebits.Value ? "yes" : "no")}");
+
+        var detail = checks.Count == 0 ? string.Empty : $" Checks: {string.Join("; ", checks)}.";
+        var message = string.IsNullOrWhiteSpace(reason)
+            ? "Paystack could not verify this bank account for payouts."
+            : $"Paystack could not verify this bank account for payouts: {reason}.";
+        return message + detail + " Confirm the bank, account number, account-holder name, and South African ID number match the bank's records.";
     }
 
     private static bool IsInsufficientBalanceError(string message) =>
