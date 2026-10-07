@@ -95,7 +95,15 @@ public class EscrowService : IEscrowService
                 return true;
             }
 
-            var bankAccount = await _context.BankAccounts.FirstOrDefaultAsync(b => b.UserId == task.AcceptedByUserId.Value && b.IsActive && b.IsVerified);
+            var bankAccount = await _context.BankAccounts
+                .Where(b =>
+                    b.UserId == task.AcceptedByUserId.Value &&
+                    b.IsActive &&
+                    b.IsVerified &&
+                    !string.IsNullOrWhiteSpace(b.ProviderReference))
+                .OrderBy(b => b.CreatedAt)
+                .ThenBy(b => b.Id)
+                .FirstOrDefaultAsync();
             if (bankAccount == null)
             {
                 if (transaction != null) await transaction.RollbackAsync();

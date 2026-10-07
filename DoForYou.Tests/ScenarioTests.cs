@@ -487,7 +487,21 @@ public class ScenarioTests
             IsVerified = true,
             CreatedAt = DateTime.UtcNow
         };
-        context.BankAccounts.Add(bankAccount);
+        var legacyTestBankAccount = new BankAccount
+        {
+            UserId = runner.Id,
+            BankName = "DFY E2E Test Bank",
+            BankGroupId = "DFY-E2E",
+            AccountNumber = "0000000000",
+            AccountHolderName = "Runner User",
+            BranchCode = "000000",
+            AccountType = "Savings",
+            IsVerified = true,
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-1)
+        };
+
+        context.BankAccounts.AddRange(legacyTestBankAccount, bankAccount);
 
         var task = new TaskEntity
         {
