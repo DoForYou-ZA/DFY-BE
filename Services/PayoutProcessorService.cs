@@ -79,7 +79,8 @@ public sealed class PayoutProcessorService(
         CancellationToken cancellationToken)
     {
         var claimed = await context.Payouts
-            .Where(p => p.Id == payout.Id && p.Status == "Pending")
+            .Where(p => p.Id == payout.Id &&
+                        (p.Status == "Pending" || p.Status == "AwaitingFunds"))
             .ExecuteUpdateAsync(setters => setters
                 .SetProperty(p => p.Status, "Processing")
                 .SetProperty(p => p.ProcessingAt, DateTime.UtcNow)
