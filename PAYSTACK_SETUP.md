@@ -49,7 +49,12 @@ When a runner adds a bank account:
 2. DFY validates the account with Paystack's South African Account Validation API.
 3. DFY creates a Paystack South African (`basa`) transfer recipient.
 4. DFY stores the recipient reference on the runner's bank account.
-5. The runner can only be paid when the account is active and verified.
+5. The runner can only be paid when the account is active, verified, and has a Paystack recipient reference.
+6. The runner can choose a default payout account from their verified, payout-ready accounts. This preference is used when DFY creates future payouts.
+
+The authenticated `PUT /api/v1/banking/bank-accounts/{id}/default` endpoint selects the runner's default. The account must belong to the caller and be active, verified, and recipient-backed. The account list reports `isDefaultPayout`. If the runner has not selected a default, DFY uses the oldest eligible account as a deterministic fallback.
+
+Payout records store their bank-account ID when created. Changing the default does not change the destination of existing payouts. Removing an account deactivates it and clears its default flag; removal is blocked while a payout is in progress.
 
 Existing Ozow-verified bank accounts do not automatically have a Paystack recipient reference. They must be re-verified through the DFY bank-account verification flow before a Paystack payout can be made.
 
