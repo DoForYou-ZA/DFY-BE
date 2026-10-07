@@ -47,15 +47,30 @@ public class EscrowService : IEscrowService
             if (!force && (!task.EscrowHoldUntil.HasValue || task.EscrowHoldUntil > DateTime.UtcNow))
                 return false;
 
-            var claimed = await _context.Tasks
+            var eligibleTask = _context.Tasks
                 .Where(t => t.Id == task.Id &&
                             t.TaskStatus == "AwaitingConfirmation" &&
                             t.EscrowStatus == "held" &&
                             t.PaymentStatus == "EscrowHeld" &&
-                            (force || (t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow)))
-                .ExecuteUpdateAsync(setters => setters
+                            (force || (t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow)));
+            int claimed;
+            if (_context.Database.IsRelational())
+            {
+                claimed = await eligibleTask.ExecuteUpdateAsync(setters => setters
                     .SetProperty(t => t.TaskStatus, "PayoutPending")
                     .SetProperty(t => t.UpdatedAt, DateTime.UtcNow));
+            }
+            else
+            {
+                var testTask = await eligibleTask.FirstOrDefaultAsync();
+                if (testTask == null)
+                    return false;
+
+                testTask.TaskStatus = "PayoutPending";
+                testTask.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                claimed = 1;
+            }
 
             if (claimed != 1)
                 return false;

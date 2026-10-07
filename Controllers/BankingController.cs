@@ -92,9 +92,10 @@ public class BankingController : ControllerBase
             });
         }
 
+        var normalizedAccountNumber = request.AccountNumber.Trim();
         var exists = await _context.BankAccounts.AnyAsync(
             ba => ba.UserId == userId.Value &&
-                  ba.AccountNumber == request.AccountNumber &&
+                  ba.AccountNumber == normalizedAccountNumber &&
                   ba.IsActive,
             cancellationToken);
 
@@ -113,7 +114,7 @@ public class BankingController : ControllerBase
             BankName = selectedBank.Name,
             BankCode = selectedBank.Code,
             BankGroupId = selectedBank.Code, // Legacy compatibility only.
-            AccountNumber = request.AccountNumber.Trim(),
+            AccountNumber = normalizedAccountNumber,
             AccountHolderName = request.AccountHolderName.Trim(),
             BranchCode = selectedBank.BranchCode ?? request.BranchCode?.Trim() ?? string.Empty,
             AccountType = request.AccountType.Trim(),
@@ -130,11 +131,15 @@ public class BankingController : ControllerBase
             bankAccount,
             cancellationToken);
 
-        if (!verification.Success)
+        var verified = verification.Success &&
+                       !string.IsNullOrWhiteSpace(verification.ProviderReference);
+        if (!verified)
         {
             bankAccount.IsVerified = false;
             bankAccount.VerifiedAt = null;
-            bankAccount.ProviderReference = verification.ProviderReference;
+            bankAccount.VerificationMessage = verification.Success
+                ? "Paystack did not return a payout recipient reference."
+                : verification.Message;
             await _context.SaveChangesAsync(cancellationToken);
 
             return Ok(new ApiResponse<object>
@@ -143,15 +148,17 @@ public class BankingController : ControllerBase
                 Data = new
                 {
                     bankAccountId = bankAccount.Id,
-                    isVerified = false
+                    isVerified = false,
+                    verificationMessage = bankAccount.VerificationMessage
                 },
-                Message = verification.Message
+                Message = bankAccount.VerificationMessage
             });
         }
 
         bankAccount.IsVerified = true;
         bankAccount.VerifiedAt = DateTime.UtcNow;
         bankAccount.ProviderReference = verification.ProviderReference;
+        bankAccount.VerificationMessage = null;
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -188,6 +195,7 @@ public class BankingController : ControllerBase
                 accountHolderName = ba.AccountHolderName,
                 accountType = ba.AccountType,
                 isVerified = ba.IsVerified && !string.IsNullOrWhiteSpace(ba.ProviderReference),
+                verificationMessage = ba.VerificationMessage,
                 createdAt = ba.CreatedAt
             })
             .Cast<object>()
@@ -264,21 +272,92 @@ public class BankingController : ControllerBase
             bankAccount,
             cancellationToken);
 
-        bankAccount.IsVerified = verification.Success;
-        bankAccount.VerifiedAt = verification.Success ? DateTime.UtcNow : null;
-        bankAccount.ProviderReference = verification.ProviderReference;
+        var verified = verification.Success &&
+                       !string.IsNullOrWhiteSpace(verification.ProviderReference);
+        if (verified)
+        {
+            bankAccount.IsVerified = true;
+            bankAccount.VerifiedAt = DateTime.UtcNow;
+            bankAccount.ProviderReference = verification.ProviderReference;
+            bankAccount.VerificationMessage = null;
+        }
+        else
+        {
+            bankAccount.VerificationMessage = verification.Success
+                ? "Paystack did not return a payout recipient reference."
+                : verification.Message;
+
+            if (string.IsNullOrWhiteSpace(bankAccount.ProviderReference))
+            {
+                bankAccount.IsVerified = false;
+                bankAccount.VerifiedAt = null;
+            }
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
 
         return Ok(new ApiResponse<object>
         {
-            Success = verification.Success,
+            Success = verified,
             Data = new
             {
                 bankAccountId = bankAccount.Id,
-                isVerified = bankAccount.IsVerified,
-                verifiedAt = bankAccount.VerifiedAt
+                isVerified = bankAccount.IsVerified &&
+                             !string.IsNullOrWhiteSpace(bankAccount.ProviderReference),
+                verifiedAt = bankAccount.VerifiedAt,
+                verificationMessage = bankAccount.VerificationMessage
             },
-            Message = verification.Message
+            Message = verified ? verification.Message : bankAccount.VerificationMessage
+        });
+    }
+
+    [HttpDelete("bank-accounts/{id:int}")]
+    public async Task<ActionResult<ApiResponse<bool>>> RemoveBankAccount(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var bankAccount = await _context.BankAccounts.FirstOrDefaultAsync(
+            ba => ba.Id == id && ba.UserId == userId.Value && ba.IsActive,
+            cancellationToken);
+
+        if (bankAccount == null)
+            return NotFound(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "Active bank account not found."
+            });
+
+        var inFlightStatuses = new[]
+        {
+            "Pending",
+            "Processing",
+            "AwaitingFunds",
+            "AwaitingBankDetails"
+        };
+        var hasInFlightPayout = await _context.Payouts.AnyAsync(
+            payout => payout.BankAccountId == id &&
+                      inFlightStatuses.Contains(payout.Status),
+            cancellationToken);
+
+        if (hasInFlightPayout)
+            return Conflict(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "This account is linked to a payout in progress and cannot be removed yet."
+            });
+
+        bankAccount.IsActive = false;
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return Ok(new ApiResponse<bool>
+        {
+            Success = true,
+            Data = true,
+            Message = "Bank account removed from your payout settings."
         });
     }
 

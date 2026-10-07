@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using DoForYou.API.Controllers;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
@@ -26,7 +27,8 @@ public class BankingControllerTests
             VerificationResult =
                 new BankVerificationResult(
                     true,
-                    "Bank account verified.")
+                    "Bank account verified.",
+                    "RCP_TEST")
         };
 
         var banks = new FakePaystackBankProvider(
@@ -203,8 +205,193 @@ public class BankingControllerTests
         Assert.False(response.Success);
         Assert.False(account.IsVerified);
         Assert.Null(account.VerifiedAt);
+        Assert.Equal("Bank verification is temporarily unavailable.", account.VerificationMessage);
 
         Assert.Equal(1, banking.VerifyCallCount);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task AddBankAccount_RequiresRecipientReferenceToMarkAccountVerified()
+    {
+        using var context = CreateContext();
+        var user = CreateUser(18);
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var banking = new FakeBankingService
+        {
+            VerificationResult = new BankVerificationResult(true, "Verified without recipient.")
+        };
+        var controller = CreateController(
+            context,
+            user.Id,
+            banking,
+            new FakePaystackBankProvider(
+                new[] { new SupportedBank("632005", "Canonical Bank", "123456") }));
+
+        var result = await controller.AddBankAccount(
+            new AddBankAccountRequest
+            {
+                BankCode = "632005",
+                AccountNumber = "1234567890",
+                AccountHolderName = "Runner User",
+                AccountType = "Savings"
+            },
+            CancellationToken.None);
+
+        var response = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        var account = await context.BankAccounts.SingleAsync();
+        Assert.False(response.Success);
+        Assert.False(account.IsVerified);
+        Assert.Null(account.ProviderReference);
+        Assert.Equal("Paystack did not return a payout recipient reference.", account.VerificationMessage);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task GetBankAccounts_OnlyMarksAccountsWithRecipientReferencesAsVerified()
+    {
+        using var context = CreateContext();
+        var user = CreateUser(19);
+        context.Users.Add(user);
+        context.BankAccounts.AddRange(
+            new BankAccount
+            {
+                UserId = user.Id,
+                BankName = "Account without recipient",
+                AccountNumber = "1234567890",
+                AccountHolderName = "Runner User",
+                AccountType = "Savings",
+                IsActive = true,
+                IsVerified = true
+            },
+            new BankAccount
+            {
+                UserId = user.Id,
+                BankName = "Payout-ready account",
+                AccountNumber = "0987654321",
+                AccountHolderName = "Runner User",
+                AccountType = "Savings",
+                IsActive = true,
+                IsVerified = true,
+                ProviderReference = "RCP_TEST"
+            });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            user.Id,
+            new FakeBankingService(),
+            new FakePaystackBankProvider(Array.Empty<SupportedBank>()));
+
+        var result = await controller.GetBankAccounts(CancellationToken.None);
+        var response = Assert.IsType<ApiResponse<List<object>>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(response.Data));
+        var accounts = data.RootElement.EnumerateArray().ToArray();
+
+        Assert.Equal(2, accounts.Length);
+        Assert.False(accounts[0].GetProperty("isVerified").GetBoolean());
+        Assert.True(accounts[1].GetProperty("isVerified").GetBoolean());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task RemoveBankAccount_DeactivatesItWithoutDeletingHistory()
+    {
+        using var context = CreateContext();
+        var user = CreateUser(15);
+        context.Users.Add(user);
+        var bankAccount = new BankAccount
+        {
+            UserId = user.Id,
+            BankName = "Canonical Bank",
+            BankCode = "632005",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Runner User",
+            BranchCode = "123456",
+            AccountType = "Savings"
+        };
+        context.BankAccounts.Add(bankAccount);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            user.Id,
+            new FakeBankingService(),
+            new FakePaystackBankProvider(Array.Empty<SupportedBank>()));
+
+        var result = await controller.RemoveBankAccount(bankAccount.Id, CancellationToken.None);
+
+        var response = Assert.IsType<ApiResponse<bool>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Success);
+        Assert.False(bankAccount.IsActive);
+        Assert.Single(await context.BankAccounts.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task RemoveBankAccount_RejectsAccountWithPayoutInProgress()
+    {
+        using var context = CreateContext();
+        var runner = CreateUser(16);
+        var creator = CreateUser(17);
+        context.Users.AddRange(runner, creator);
+        var bankAccount = new BankAccount
+        {
+            UserId = runner.Id,
+            BankName = "Canonical Bank",
+            BankCode = "632005",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Runner User",
+            BranchCode = "123456",
+            AccountType = "Savings"
+        };
+        var task = new DoForYou.API.Models.Task
+        {
+            TaskId = "DFY-ACCOUNT-REMOVE",
+            TaskName = "Account removal test",
+            TaskDescription = "Prevent removing an account with an active payout",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            PayoutAmount = 170m,
+            PaymentStatus = "EscrowReleased",
+            TaskStatus = "PayoutPending",
+            PayoutStatus = "Processing",
+            EscrowStatus = "released",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id
+        };
+        context.BankAccounts.Add(bankAccount);
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+        context.Payouts.Add(new Payout
+        {
+            TaskId = task.Id,
+            Task = task,
+            RunnerId = runner.Id,
+            BankAccountId = bankAccount.Id,
+            BankAccount = bankAccount,
+            Amount = 170m,
+            Status = "Processing",
+            Provider = "Paystack",
+            MerchantReference = "DFY-PAYOUT-ACCOUNT-REMOVE"
+        });
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            runner.Id,
+            new FakeBankingService(),
+            new FakePaystackBankProvider(Array.Empty<SupportedBank>()));
+
+        var result = await controller.RemoveBankAccount(bankAccount.Id, CancellationToken.None);
+
+        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(conflict.Value);
+        Assert.False(response.Success);
+        Assert.True(bankAccount.IsActive);
     }
 
     [Fact]

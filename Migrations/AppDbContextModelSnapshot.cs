@@ -117,6 +117,9 @@ namespace DoForYou.API.Migrations
                     b.Property<int>("UserId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("VerificationMessage")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("VerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -314,11 +317,11 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<string>("Provider")
-                        .IsRequired()
+                    b.Property<string>("PaymentUrl")
                         .HasColumnType("text");
 
-                    b.Property<string>("PaymentUrl")
+                    b.Property<string>("Provider")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<string>("Status")
@@ -391,17 +394,6 @@ namespace DoForYou.API.Migrations
                         .HasFilter("\"TransactionId\" IS NOT NULL");
 
                     b.ToTable("PaymentAttempts");
-                });
-
-            modelBuilder.Entity("DoForYou.API.Models.PaymentAttempt", b =>
-                {
-                    b.HasOne("DoForYou.API.Models.Task", "Task")
-                        .WithMany()
-                        .HasForeignKey("TaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Task");
                 });
 
             modelBuilder.Entity("DoForYou.API.Models.Payout", b =>
@@ -484,65 +476,6 @@ namespace DoForYou.API.Migrations
                     b.ToTable("Payouts");
                 });
 
-            modelBuilder.Entity("DoForYou.API.Models.Refund", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("Amount")
-                        .HasColumnType("numeric");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FailureReason")
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("LastReconciledAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Provider")
-                        .HasColumnType("text");
-
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("RefundId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("SubmittedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("TaskId")
-                        .HasColumnType("integer");
-
-                    b.Property<string>("TransactionId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RefundId")
-                        .IsUnique();
-
-                    b.HasIndex("TaskId")
-                        .IsUnique();
-
-                    b.ToTable("Refunds");
-                });
-
             modelBuilder.Entity("DoForYou.API.Models.Rating", b =>
                 {
                     b.Property<int>("Id")
@@ -578,6 +511,65 @@ namespace DoForYou.API.Migrations
                     b.HasIndex("TaskId");
 
                     b.ToTable("Ratings");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.Refund", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("LastReconciledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Provider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("RefundId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("TaskId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TransactionId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RefundId")
+                        .IsUnique();
+
+                    b.HasIndex("TaskId")
+                        .IsUnique();
+
+                    b.ToTable("Refunds");
                 });
 
             modelBuilder.Entity("DoForYou.API.Models.SupportTicket", b =>
@@ -1092,6 +1084,17 @@ namespace DoForYou.API.Migrations
                     b.Navigation("Task");
                 });
 
+            modelBuilder.Entity("DoForYou.API.Models.PaymentAttempt", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.Task", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Task");
+                });
+
             modelBuilder.Entity("DoForYou.API.Models.Payout", b =>
                 {
                     b.HasOne("DoForYou.API.Models.BankAccount", "BankAccount")
@@ -1119,17 +1122,6 @@ namespace DoForYou.API.Migrations
                     b.Navigation("Task");
                 });
 
-            modelBuilder.Entity("DoForYou.API.Models.Refund", b =>
-                {
-                    b.HasOne("DoForYou.API.Models.Task", "Task")
-                        .WithMany()
-                        .HasForeignKey("TaskId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Task");
-                });
-
             modelBuilder.Entity("DoForYou.API.Models.Rating", b =>
                 {
                     b.HasOne("DoForYou.API.Models.User", "RatedByUser")
@@ -1153,6 +1145,17 @@ namespace DoForYou.API.Migrations
                     b.Navigation("RatedByUser");
 
                     b.Navigation("RatedUser");
+
+                    b.Navigation("Task");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.Refund", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.Task", "Task")
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.Navigation("Task");
                 });

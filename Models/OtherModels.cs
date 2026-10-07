@@ -143,6 +143,7 @@ public class BankAccount
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? VerifiedAt { get; set; }
+    public string? VerificationMessage { get; set; }
 
     public User User { get; set; } = null!;
 }

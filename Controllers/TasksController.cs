@@ -402,16 +402,38 @@ public class TasksController : ControllerBase
                 Message = "Add and verify a Paystack bank account in Payout Settings before accepting a task."
             });
 
-        // Atomic claim: exactly one runner can transition the posted task to Claimed.
+        // Relational providers use a conditional update to make the claim atomic.
         var claimedAt = DateTime.UtcNow;
-        var affected = await _context.Tasks
-            .Where(t => t.Id == task.Id && t.TaskStatus == "Posted" && t.PaymentStatus == "EscrowHeld" && t.AcceptedByUserId == null)
-            .ExecuteUpdateAsync(setters => setters
+        var claimableTask = _context.Tasks
+            .Where(t => t.Id == task.Id &&
+                        t.TaskStatus == "Posted" &&
+                        t.PaymentStatus == "EscrowHeld" &&
+                        t.AcceptedByUserId == null);
+        int affected;
+        if (_context.Database.IsRelational())
+        {
+            affected = await claimableTask.ExecuteUpdateAsync(setters => setters
                 .SetProperty(t => t.AcceptedByUserId, userId.Value)
                 .SetProperty(t => t.HelperName, request.HelperName.Trim())
                 .SetProperty(t => t.HelperContact, request.HelperContact.Trim())
                 .SetProperty(t => t.TaskStatus, "Claimed")
                 .SetProperty(t => t.UpdatedAt, claimedAt));
+        }
+        else
+        {
+            var claimable = await claimableTask.FirstOrDefaultAsync();
+            if (claimable == null)
+                affected = 0;
+            else
+            {
+                claimable.AcceptedByUserId = userId.Value;
+                claimable.HelperName = request.HelperName.Trim();
+                claimable.HelperContact = request.HelperContact.Trim();
+                claimable.TaskStatus = "Claimed";
+                claimable.UpdatedAt = claimedAt;
+                affected = await _context.SaveChangesAsync();
+            }
+        }
 
         if (affected != 1)
             return Ok(new ApiResponse<bool> { Success = false, Message = "Task was just accepted by another runner." });
@@ -524,7 +546,7 @@ public class TasksController : ControllerBase
         {
             id = task.Id, taskId = task.TaskId, title = task.TaskDescription, description = task.TaskDescription,
             category = task.Category, location = task.Area, budget = task.Budget, status = task.TaskStatus.ToLower(),
-            paymentStatus = task.PaymentStatus, escrowStatus = task.EscrowStatus, priority = task.Priority.ToLower(),
+            paymentStatus = task.PaymentStatus, escrowStatus = task.EscrowStatus, payoutStatus = task.PayoutStatus, priority = task.Priority.ToLower(),
             createdAt = task.CreatedAt, dueDate = task.DateNeeded,
             creatorName = $"{task.CreatedByUser.FirstName} {task.CreatedByUser.LastName}",
             creatorContact = task.CreatedByUser.PhoneNumber ?? task.CreatedByUser.Email,

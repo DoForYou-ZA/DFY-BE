@@ -21,24 +21,14 @@ public class ScenarioTests
     public async System.Threading.Tasks.Task PosterCanCreateTask_WhenProfileIsComplete()
     {
         using var context = CreateContext(nameof(PosterCanCreateTask_WhenProfileIsComplete));
-        var poster = new User
-        {
-            Id = 1,
-            FirstName = "Jane",
-            LastName = "Poster",
-            Email = "poster@example.com",
-            PhoneNumber = "0712345678",
-            UserType = "creator",
-            ProfileCompleted = true,
-            Address = "123 Main Road",
-            Roles = "User",
-        };
+        var poster = CreateUser(1, "creator", true, "poster@example.com");
         context.Users.Add(poster);
         await context.SaveChangesAsync();
 
         var controller = CreateTasksController(context, poster.Id);
         var request = new CreateTaskRequest
         {
+            TaskName = "Fix the leaking tap",
             TaskDescription = "Fix the leaking tap",
             Category = "Home",
             Area = "Johannesburg",
@@ -53,7 +43,7 @@ public class ScenarioTests
         var ok = Assert.IsType<OkObjectResult>(result.Result);
         var response = Assert.IsType<ApiResponse<object>>(ok.Value);
 
-        Assert.True(response.Success);
+        Assert.True(response.Success, response.Message);
         Assert.Equal("Task created successfully. Complete payment to activate.", response.Message);
     }
 
@@ -492,6 +482,7 @@ public class ScenarioTests
             BankName = "Test Bank",
             AccountNumber = "1234567890",
             BranchCode = "123456",
+            ProviderReference = "RCP_TEST_DFY_3",
             IsActive = true,
             IsVerified = true,
             CreatedAt = DateTime.UtcNow
@@ -509,7 +500,7 @@ public class ScenarioTests
             CommissionAmount = 120m,
             PayoutAmount = 680m,
             PaymentStatus = "EscrowHeld",
-            TaskStatus = "Completed",
+            TaskStatus = "AwaitingConfirmation",
             EscrowStatus = "held",
             EscrowHoldUntil = DateTime.UtcNow.AddHours(-1),
             CreatedByUserId = poster.Id,

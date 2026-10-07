@@ -335,10 +335,16 @@ public sealed class PaystackProvider(
             var credits = !data.TryGetProperty("accountAcceptsCredits", out _)
                 || GetBool(data, "accountAcceptsCredits");
 
-            if (!verified || !credits)
-                return new(false,
-                    GetString(data, "verificationMessage") ??
-                    "The bank account could not be verified for payouts.");
+            if (!verified)
+            {
+                var reason = GetString(data, "verificationMessage");
+                return new(false, string.IsNullOrWhiteSpace(reason)
+                    ? "Paystack could not verify this bank account for payouts. Check the bank and account details, then try again."
+                    : $"Paystack could not verify this bank account for payouts: {reason}. Confirm the selected bank, account number, account-holder name, and profile ID match the bank's records.");
+            }
+
+            if (!credits)
+                return new(false, "Paystack reports this account cannot receive credits, so it cannot be used for payouts.");
 
             var recipient = await CreateRecipientAsync(
                 bankAccount,

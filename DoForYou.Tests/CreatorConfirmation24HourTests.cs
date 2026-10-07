@@ -23,6 +23,7 @@ public class CreatorConfirmation24HourTests
             BankName = "Test Bank",
             AccountNumber = "1234567890",
             BranchCode = "123456",
+            ProviderReference = "RCP_TEST_24H_001",
             IsActive = true,
             IsVerified = true,
             CreatedAt = DateTime.UtcNow
@@ -91,6 +92,7 @@ public class CreatorConfirmation24HourTests
             BankName = "Test Bank",
             AccountNumber = "1234567890",
             BranchCode = "123456",
+            ProviderReference = "RCP_TEST_24H_002",
             IsActive = true,
             IsVerified = true,
             CreatedAt = DateTime.UtcNow

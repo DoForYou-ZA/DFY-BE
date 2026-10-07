@@ -55,6 +55,8 @@ Existing Ozow-verified bank accounts do not automatically have a Paystack recipi
 
 An account marked verified without a Paystack recipient is shown as requiring verification in the runner's Payout Settings. After Paystack verification creates the recipient, payouts that failed specifically because the recipient was missing are automatically queued again with their original merchant reference. Do not manually edit payout status in the database.
 
+Failed account verification remains visible in Payout Settings with Paystack's verification feedback, so the runner can correct the details or retry without refreshing. Accounts can be removed from the runner's active payout settings; removal deactivates the local account rather than deleting payout history or the Paystack recipient. Removal is blocked while a payout is in progress.
+
 ## Payment lifecycle
 
 Creator:
@@ -74,17 +76,32 @@ Use Paystack's documented test payment details in Test Mode. The successful reus
 
 Paystack documents that test transfers return success because they are simulated, so staging can exercise the DFY payout lifecycle without moving real money.
 
-Run the DFY staging test as:
+The automated escrow/dispute workflow uses admin verification to simulate the creator-payment state. It is not evidence of Paystack collection or transfer completion. It only runs its payout workflow when the runner already has an active bank account verified through Paystack with a stored recipient reference; it skips rather than provisioning a fake recipient.
 
-1. Creator creates a task.
-2. DFY redirects the creator to Paystack Checkout.
-3. Complete the test payment.
-4. Paystack sends charge.success to /api/v1/payment/webhook.
-5. DFY independently verifies the transaction and moves the task to Posted / EscrowHeld.
-6. Runner accepts and completes the task.
-7. Creator confirms or the 24-hour window expires.
-8. DFY creates the Paystack transfer.
-9. Paystack confirms the transfer and DFY moves the task to RunnerPaid.
+For the end-to-end provider test, first verify the staging runner's bank account in **Paystack Test Mode** and ensure the staging backend uses the matching test secret and webhook. Then run the manual checkout test with staging credentials:
+
+```sh
+PAYSTACK_MANUAL_CHECKOUT=1 \
+PAYSTACK_TEST_MODE_CONFIRMED=1 \
+DFY_CREATOR_EMAIL=... \
+DFY_CREATOR_PASSWORD=... \
+DFY_RUNNER_EMAIL=... \
+DFY_RUNNER_PASSWORD=... \
+npx playwright test e2e/paystack-manual-checkout.spec.ts --headed
+```
+
+The explicit Test Mode confirmation is required to avoid accidentally creating a real payment or transfer. The test pauses for the operator to complete Paystack Checkout, then verifies webhook activation, runner claim/completion, creator confirmation, and the final `RunnerPaid` / `Completed` payout state. Do not use production credentials or a live-mode Paystack account for this test.
+
+The provider-test sequence is:
+
+1. The test creates a task and opens its Paystack-hosted checkout.
+2. Complete the test payment using Paystack's documented Test Mode details.
+3. Paystack sends `charge.success` to `/api/v1/payment/webhook`.
+4. DFY independently verifies the transaction and moves the task to `Posted / EscrowHeld`.
+5. A runner with a verified Paystack recipient accepts and completes the task.
+6. The creator confirms completion.
+7. DFY creates the Paystack transfer.
+8. Paystack confirms the test transfer and DFY moves the task to `RunnerPaid`.
 
 Every Paystack payment attempt uses a unique transaction reference. Pending tasks generate a new reference whenever the creator starts checkout again; webhook reconciliation uses the payment-attempt record instead of relying only on the task's latest reference.
 
