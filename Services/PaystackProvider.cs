@@ -340,7 +340,15 @@ public sealed class PaystackProvider(
             var root = document.RootElement;
 
             if (!response.IsSuccessStatusCode || !GetBool(root, "status"))
+            {
+                logger.LogWarning(
+                    "Paystack bank validation rejected bank account {BankAccountId}: HTTP {StatusCode}, providerMessage={ProviderMessage}, verificationMessage={VerificationMessage}",
+                    bankAccount.Id,
+                    (int)response.StatusCode,
+                    GetString(root, "message") ?? "none",
+                    root.TryGetProperty("data", out var rejectedData) ? GetString(rejectedData, "verificationMessage") ?? "none" : "none");
                 return new(false, GetString(root, "message") ?? "Paystack bank verification failed.");
+            }
 
             var data = root.GetProperty("data");
             var verified = GetBool(data, "verified");
@@ -426,7 +434,14 @@ public sealed class PaystackProvider(
         var root = document.RootElement;
 
         if (!response.IsSuccessStatusCode || !GetBool(root, "status"))
+        {
+            logger.LogWarning(
+                "Paystack transfer recipient creation rejected bank account {BankAccountId}: HTTP {StatusCode}, providerMessage={ProviderMessage}",
+                bankAccount.Id,
+                (int)response.StatusCode,
+                GetString(root, "message") ?? "none");
             return (false, GetString(root, "message") ?? "Paystack could not create the payout recipient.", null);
+        }
 
         var data = root.GetProperty("data");
         var recipientCode = GetString(data, "recipient_code");
@@ -471,6 +486,13 @@ public sealed class PaystackProvider(
             if (!response.IsSuccessStatusCode || !GetBool(root, "status"))
             {
                 var message = GetString(root, "message") ?? $"Paystack transfer failed ({(int)response.StatusCode}).";
+                logger.LogWarning(
+                    "Paystack transfer rejected payout {PayoutId} reference {Reference}: HTTP {StatusCode}, providerMessage={ProviderMessage}, retryable={Retryable}",
+                    payout.Id,
+                    payout.MerchantReference,
+                    (int)response.StatusCode,
+                    message,
+                    (int)response.StatusCode >= 500 || (int)response.StatusCode == 408 || (int)response.StatusCode == 429 || IsInsufficientBalanceError(message));
                 var retryable = (int)response.StatusCode >= 500 ||
                                 (int)response.StatusCode == 408 ||
                                 (int)response.StatusCode == 429 ||
@@ -517,8 +539,15 @@ public sealed class PaystackProvider(
             var root = document.RootElement;
 
             if (!response.IsSuccessStatusCode || !GetBool(root, "status"))
+            {
+                logger.LogWarning(
+                    "Paystack payout verification rejected reference {Reference}: HTTP {StatusCode}, providerMessage={ProviderMessage}",
+                    payout.MerchantReference,
+                    (int)response.StatusCode,
+                    GetString(root, "message") ?? "none");
                 return new(false, false, null, null,
                     GetString(root, "message") ?? "Paystack payout verification failed.");
+            }
 
             var data = root.GetProperty("data");
             return new(
