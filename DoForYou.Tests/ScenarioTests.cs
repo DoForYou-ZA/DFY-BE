@@ -485,7 +485,20 @@ public class ScenarioTests
             ProviderReference = "RCP_TEST_DFY_3",
             IsActive = true,
             IsVerified = true,
+            IsDefaultPayout = true,
             CreatedAt = DateTime.UtcNow
+        };
+        var olderEligibleBankAccount = new BankAccount
+        {
+            UserId = runner.Id,
+            BankName = "Older verified bank",
+            AccountNumber = "1234567891",
+            AccountHolderName = "Runner User",
+            AccountType = "Savings",
+            ProviderReference = "RCP_OLDER_DFY_3",
+            IsActive = true,
+            IsVerified = true,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-2)
         };
         var legacyTestBankAccount = new BankAccount
         {
@@ -501,7 +514,7 @@ public class ScenarioTests
             CreatedAt = DateTime.UtcNow.AddMinutes(-1)
         };
 
-        context.BankAccounts.AddRange(legacyTestBankAccount, bankAccount);
+        context.BankAccounts.AddRange(legacyTestBankAccount, olderEligibleBankAccount, bankAccount);
 
         var task = new TaskEntity
         {

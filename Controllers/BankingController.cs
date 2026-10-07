@@ -196,15 +196,34 @@ public class BankingController : ControllerBase
                 accountType = ba.AccountType,
                 isVerified = ba.IsVerified && !string.IsNullOrWhiteSpace(ba.ProviderReference),
                 verificationMessage = ba.VerificationMessage,
+                isDefaultPayout = ba.IsDefaultPayout,
                 createdAt = ba.CreatedAt
             })
-            .Cast<object>()
+            .OrderBy(ba => ba.createdAt)
+            .ThenBy(ba => ba.id)
             .ToListAsync(cancellationToken);
+
+        var defaultAccountId = accounts
+            .FirstOrDefault(account => account.isVerified && account.isDefaultPayout)?.id
+            ?? accounts.FirstOrDefault(account => account.isVerified)?.id;
+        var accountResults = accounts.Select(account => (object)new
+        {
+            account.id,
+            account.bankName,
+            account.bankCode,
+            account.accountNumber,
+            account.accountHolderName,
+            account.accountType,
+            account.isVerified,
+            account.verificationMessage,
+            isDefaultPayout = account.id == defaultAccountId,
+            account.createdAt
+        }).ToList();
 
         return Ok(new ApiResponse<List<object>>
         {
             Success = true,
-            Data = accounts
+            Data = accountResults
         });
     }
 
@@ -311,6 +330,62 @@ public class BankingController : ControllerBase
         });
     }
 
+    [HttpPut("bank-accounts/{id:int}/default")]
+    public async Task<ActionResult<ApiResponse<bool>>> SetDefaultPayoutAccount(
+        int id,
+        CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null)
+            return Unauthorized();
+
+        var account = await _context.BankAccounts.FirstOrDefaultAsync(
+            bankAccount => bankAccount.Id == id && bankAccount.UserId == userId.Value,
+            cancellationToken);
+
+        if (account == null)
+            return NotFound(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "Bank account not found."
+            });
+
+        if (!account.IsActive ||
+            !account.IsVerified ||
+            string.IsNullOrWhiteSpace(account.ProviderReference))
+        {
+            return Conflict(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "Only an active account verified with a Paystack recipient can be selected for payouts."
+            });
+        }
+
+        await using var transaction = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        var existingDefaults = await _context.BankAccounts
+            .Where(bankAccount =>
+                bankAccount.UserId == userId.Value &&
+                bankAccount.IsDefaultPayout)
+            .ToListAsync(cancellationToken);
+
+        foreach (var existingDefault in existingDefaults)
+            existingDefault.IsDefaultPayout = false;
+        account.IsDefaultPayout = true;
+        await _context.SaveChangesAsync(cancellationToken);
+        if (transaction != null)
+            await transaction.CommitAsync(cancellationToken);
+
+        return Ok(new ApiResponse<bool>
+        {
+            Success = true,
+            Data = true,
+            Message = "Default payout account updated."
+        });
+    }
+
     [HttpDelete("bank-accounts/{id:int}")]
     public async Task<ActionResult<ApiResponse<bool>>> RemoveBankAccount(
         int id,
@@ -351,6 +426,7 @@ public class BankingController : ControllerBase
             });
 
         bankAccount.IsActive = false;
+        bankAccount.IsDefaultPayout = false;
         await _context.SaveChangesAsync(cancellationToken);
 
         return Ok(new ApiResponse<bool>

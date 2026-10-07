@@ -108,6 +108,9 @@ namespace DoForYou.API.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsDefaultPayout")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsVerified")
                         .HasColumnType("boolean");
 

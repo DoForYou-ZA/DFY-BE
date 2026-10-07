@@ -141,6 +141,7 @@ public class BankAccount
     public string AccountType { get; set; } = string.Empty;
     public bool IsVerified { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsDefaultPayout { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? VerifiedAt { get; set; }
     public string? VerificationMessage { get; set; }

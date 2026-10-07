@@ -296,6 +296,58 @@ public class BankingControllerTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task SetDefaultPayoutAccount_RequiresOwnedPayoutReadyAccountAndReplacesPriorDefault()
+    {
+        using var context = CreateContext();
+        var user = CreateUser(20);
+        var otherUser = CreateUser(21);
+        var priorDefault = CreatePayoutReadyAccount(user.Id, "RCP_PRIOR", isDefault: true);
+        var selectedAccount = CreatePayoutReadyAccount(user.Id, "RCP_SELECTED");
+        var otherUsersAccount = CreatePayoutReadyAccount(otherUser.Id, "RCP_OTHER");
+        var unverifiedAccount = new BankAccount
+        {
+            UserId = user.Id,
+            BankName = "Unverified",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Runner User",
+            AccountType = "Savings",
+            IsActive = true,
+            IsVerified = true
+        };
+        context.Users.AddRange(user, otherUser);
+        context.BankAccounts.AddRange(priorDefault, selectedAccount, otherUsersAccount, unverifiedAccount);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            user.Id,
+            new FakeBankingService(),
+            new FakePaystackBankProvider(Array.Empty<SupportedBank>()));
+
+        var result = await controller.SetDefaultPayoutAccount(selectedAccount.Id, CancellationToken.None);
+
+        var response = Assert.IsType<ApiResponse<bool>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Success);
+        Assert.False(priorDefault.IsDefaultPayout);
+        Assert.True(selectedAccount.IsDefaultPayout);
+
+        var accountsResult = await controller.GetBankAccounts(CancellationToken.None);
+        var accountsResponse = Assert.IsType<ApiResponse<List<object>>>(
+            Assert.IsType<OkObjectResult>(accountsResult.Result).Value);
+        using var data = JsonDocument.Parse(JsonSerializer.Serialize(accountsResponse.Data));
+        var selectedJson = data.RootElement.EnumerateArray()
+            .Single(account => account.GetProperty("id").GetInt32() == selectedAccount.Id);
+        Assert.True(selectedJson.GetProperty("isDefaultPayout").GetBoolean());
+
+        var unverifiedResult = await controller.SetDefaultPayoutAccount(unverifiedAccount.Id, CancellationToken.None);
+        Assert.IsType<ConflictObjectResult>(unverifiedResult.Result);
+
+        var otherUsersResult = await controller.SetDefaultPayoutAccount(otherUsersAccount.Id, CancellationToken.None);
+        Assert.IsType<NotFoundObjectResult>(otherUsersResult.Result);
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task RemoveBankAccount_DeactivatesItWithoutDeletingHistory()
     {
         using var context = CreateContext();
@@ -487,6 +539,20 @@ public class BankingControllerTests
 
         return new AppDbContext(options);
     }
+
+    private static BankAccount CreatePayoutReadyAccount(int userId, string recipientReference, bool isDefault = false) =>
+        new()
+        {
+            UserId = userId,
+            BankName = "Verified Bank",
+            AccountNumber = Guid.NewGuid().ToString("N")[..10],
+            AccountHolderName = "Runner User",
+            AccountType = "Savings",
+            ProviderReference = recipientReference,
+            IsActive = true,
+            IsVerified = true,
+            IsDefaultPayout = isDefault
+        };
 
     private static User CreateUser(int id)
     {

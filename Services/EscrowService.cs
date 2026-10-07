@@ -101,7 +101,8 @@ public class EscrowService : IEscrowService
                     b.IsActive &&
                     b.IsVerified &&
                     !string.IsNullOrWhiteSpace(b.ProviderReference))
-                .OrderBy(b => b.CreatedAt)
+                .OrderByDescending(b => b.IsDefaultPayout)
+                .ThenBy(b => b.CreatedAt)
                 .ThenBy(b => b.Id)
                 .FirstOrDefaultAsync();
             if (bankAccount == null)
