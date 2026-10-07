@@ -41,15 +41,6 @@ public class EscrowReleaseService : BackgroundService
                         continue;
 
                     count++;
-                    if (task.AcceptedByUserId.HasValue)
-                    {
-                        await notificationService.NotifyPaymentReleasedAsync(
-                            task.AcceptedByUserId.Value,
-                            task.TaskDescription,
-                            task.PayoutAmount,
-                            task.Id);
-                    }
-
                     await notificationService.CreateNotificationAsync(
                         task.CreatedByUserId,
                         "task_auto_confirmed",

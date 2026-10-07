@@ -74,6 +74,9 @@ public sealed class BankingService(
                 payout.Task.TaskStatus = "PayoutPending";
                 payout.Task.UpdatedAt = DateTime.UtcNow;
             }
+
+            if (payouts.Count > 0)
+                await context.SaveChangesAsync(cancellationToken);
         }
 
         return new BankVerificationResult(

@@ -10,11 +10,11 @@ namespace DoForYou.API.Services;
 /// </summary>
 public interface IUserPolicyService
 {
-    bool IsProfileComplete(User user);
-    int GetProfileCompletion(User user);
-    IReadOnlyList<string> GetMissingProfileFields(User user);
+    bool IsProfileComplete(User user, bool hasVerifiedBank = true);
+    int GetProfileCompletion(User user, bool hasVerifiedBank = true);
+    IReadOnlyList<string> GetMissingProfileFields(User user, bool hasVerifiedBank = true);
     bool CanCreateTasks(User user);
-    bool CanAcceptTasks(User user);
+    bool CanAcceptTasks(User user, bool hasVerifiedBank = true);
     bool IsValidPhone(string value);
     bool IsPlaceholderAddress(string? value);
     bool IsValidSouthAfricanId(string? value);
@@ -27,17 +27,17 @@ public sealed class UserPolicyService : IUserPolicyService
         "just around", "near me", "around", "n/a", "na", "tbc", "unknown", "somewhere"
     };
 
-    public bool IsProfileComplete(User user) =>
-        GetMissingProfileFields(user).Count == 0;
+    public bool IsProfileComplete(User user, bool hasVerifiedBank = true) =>
+        GetMissingProfileFields(user, hasVerifiedBank).Count == 0;
 
-    public int GetProfileCompletion(User user)
+    public int GetProfileCompletion(User user, bool hasVerifiedBank = true)
     {
-        const int total = 8;
-        var complete = total - GetMissingProfileFields(user).Count;
+        const int total = 9;
+        var complete = total - GetMissingProfileFields(user, hasVerifiedBank).Count;
         return (int)Math.Round(complete * 100.0 / total);
     }
 
-    public IReadOnlyList<string> GetMissingProfileFields(User user)
+    public IReadOnlyList<string> GetMissingProfileFields(User user, bool hasVerifiedBank = true)
     {
         var missing = new List<string>();
 
@@ -57,6 +57,8 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("dateOfBirth");
         if (user.UserType is not ("creator" or "runner" or "both"))
             missing.Add("userType");
+        if (user.UserType is "runner" or "both" && !hasVerifiedBank)
+            missing.Add("verifiedBankAccount");
 
         return missing;
     }
@@ -64,8 +66,8 @@ public sealed class UserPolicyService : IUserPolicyService
     public bool CanCreateTasks(User user) =>
         IsProfileComplete(user) && (user.UserType is "creator" or "both");
 
-    public bool CanAcceptTasks(User user) =>
-        IsProfileComplete(user) && (user.UserType is "runner" or "both");
+    public bool CanAcceptTasks(User user, bool hasVerifiedBank = true) =>
+        IsProfileComplete(user, hasVerifiedBank) && (user.UserType is "runner" or "both");
 
     public bool IsValidPhone(string value)
     {
