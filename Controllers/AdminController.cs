@@ -480,12 +480,14 @@ public class AdminController : ControllerBase
         }
 
         // Test/operations harness: backdate the same 24-hour deadline used by
-        // normal completion, then run the production auto-release service path.
+        // normal completion, then call the exact release operation the background
+        // worker uses for each expired task. AutoReleaseExpiredEscrowsAsync is a
+        // legacy no-op; EscrowReleaseService owns the expiry query/loop.
         task.EscrowHoldUntil = DateTime.UtcNow.AddMinutes(-1);
         task.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        var released = await _escrowService.AutoReleaseExpiredEscrowsAsync();
+        var released = await _escrowService.ReleaseEscrowAsync(task.Id) ? 1 : 0;
         await WriteAuditAsync(
             "ExpireCreatorConfirmation",
             "Task",

@@ -85,14 +85,14 @@ public class NotificationService : INotificationService
     }
 
     // Kept as the existing interface entry point used by the task confirmation flow.
-    // The payout is queued here; Ozow status 5 is the authoritative payout completion event.
+    // The payout is queued here; Paystack's successful transfer webhook is authoritative.
     public async System.Threading.Tasks.Task NotifyPaymentReleasedAsync(int runnerId, string taskDescription, decimal amount, int? taskId = null)
     {
         await CreateNotificationAsync(
             runnerId,
             "payout_pending",
             "Payout Initiated",
-            $"Your R{amount:F2} runner payout has been queued and is being processed through Ozow for: {taskDescription}",
+            $"Your R{amount:F2} runner payout has been queued and is being processed through Paystack for: {taskDescription}",
             taskId
         );
     }
@@ -103,7 +103,7 @@ public class NotificationService : INotificationService
             runnerId,
             "payout_completed",
             "Payout Completed",
-            $"Your R{amount:F2} runner payout has been completed through Ozow for: {taskDescription}",
+            $"Your R{amount:F2} runner payout has been completed through Paystack for: {taskDescription}",
             taskId
         );
     }
