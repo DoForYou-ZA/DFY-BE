@@ -487,7 +487,22 @@ public class AdminController : ControllerBase
         task.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        var released = await _escrowService.ReleaseEscrowAsync(task.Id) ? 1 : 0;
+        var released = await _escrowService.ReleaseEscrowAsync(task.Id);
+        if (!released)
+        {
+            // The hosted expiry worker may win the same atomic state transition
+            // after the deadline is backdated. Treat its completed transition as
+            // success rather than reporting a false negative to the E2E caller.
+            var currentState = await _context.Tasks
+                .AsNoTracking()
+                .Where(t => t.Id == task.Id)
+                .Select(t => new { t.TaskStatus, t.PaymentStatus, t.EscrowStatus })
+                .FirstOrDefaultAsync();
+            released = currentState?.TaskStatus == "PayoutPending" &&
+                       currentState.PaymentStatus == "EscrowReleased" &&
+                       currentState.EscrowStatus == "released";
+        }
+
         await WriteAuditAsync(
             "ExpireCreatorConfirmation",
             "Task",
@@ -497,9 +512,9 @@ public class AdminController : ControllerBase
 
         return Ok(new ApiResponse<bool>
         {
-            Success = released > 0,
-            Data = released > 0,
-            Message = released > 0
+            Success = released,
+            Data = released,
+            Message = released
                 ? "Creator confirmation expired and the runner payout was queued."
                 : "Creator confirmation was expired, but the escrow could not be released."
         });
