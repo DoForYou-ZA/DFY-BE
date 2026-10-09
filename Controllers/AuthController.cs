@@ -67,11 +67,21 @@ public class AuthController : ControllerBase
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        _ = _notificationService.NotifyAdminsAsync(
-            "new_user",
-            "New User Registered",
-            $"{user.FirstName} {user.LastName} ({user.Email}) joined as {user.UserType ?? "user"}"
-        );
+        // Do not fire-and-forget work that uses the request-scoped DbContext.
+        // Await the admin notification while the request scope is alive, but do
+        // not fail registration if the notification subsystem is unavailable.
+        try
+        {
+            await _notificationService.NotifyAdminsAsync(
+                "new_user",
+                "New User Registered",
+                $"{user.FirstName} {user.LastName} ({user.Email}) joined as {user.UserType ?? "user"}"
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to notify admins about newly registered user {UserId}", user.Id);
+        }
 
         var token = GenerateJwtToken(user);
 
