@@ -1,4 +1,7 @@
 # DFY — Complete Current Progress & Codebase Audit
+> **Historical audit notice (2026-10-09):** The matrix and Ozow-specific findings below were written on 2026-09-18 and are not the current release status. DFY has since migrated its active payment/payout path to Paystack and merged additional hardening. Use `DFY_RELEASE_READINESS_2026-10-09.md` for the current status; treat the remainder of this file as historical context until a full line-by-line audit is refreshed.
+
+
 
 **Audit date:** 2026-09-18  
 **Repositories:** DFY-BE and DFY-FE  
