@@ -170,7 +170,17 @@ builder.Services.AddCors(options =>
             ? new[] { "http://localhost:3000", "http://localhost:4200", "http://localhost:5173" }
             : Array.Empty<string>();
 
-        var allOrigins = allowedOrigins.Concat(devOrigins).Distinct().ToArray();
+        // Playwright mobile-responsiveness E2E runs a local Vite preview against
+        // the staging API. Allow that origin only when the explicit E2E safety
+        // flag is enabled; production CORS remains restricted to configured origins.
+        var e2eOrigins = string.Equals(
+                Environment.GetEnvironmentVariable("DFY_E2E_TEST_MODE"),
+                "true",
+                StringComparison.OrdinalIgnoreCase)
+            ? new[] { "http://127.0.0.1:4173", "http://localhost:4173" }
+            : Array.Empty<string>();
+
+        var allOrigins = allowedOrigins.Concat(devOrigins).Concat(e2eOrigins).Distinct().ToArray();
 
         policy.WithOrigins(allOrigins)
               .AllowAnyHeader()
