@@ -13,7 +13,7 @@
 | DFY mobile | Expo/React Native app aligned with current API contract | PR #1 merged; TypeScript CI passed |
 | Backend staging | Live on the latest safety commit | Render deployment for commit `c21b928` succeeded; JWT signing key rotated afterward |
 | FE staging | Latest FE commit deployed | Render deployment for commit `4130f05` succeeded |
-| CORS E2E support | Small staging-only follow-up pending | BE PR #30; CI build/tests passed |
+| CORS E2E support | Merged; staging deployment is being verified | BE PR #30 merged; BE CI passed |
 
 ## Canonical task and payment lifecycle
 
@@ -37,7 +37,7 @@
 - Removed mobile client-side payment-success calls; checkout browser dismissal is not treated as proof of payment.
 - Added the creator's confirm/dispute actions to mobile, aligned the mobile task type with `AwaitingConfirmation`, and added default payout-account selection.
 - Added a mobile TypeScript CI check and removed the retired wallet screen.
-- Verified the latest FE PR workflow: **16 staging E2E tests passed**, and the mobile responsiveness job passed. The post-merge FE main workflow is running separately.
+- Verified the latest FE PR workflow: **16 staging E2E tests passed**, and the mobile responsiveness job passed. The post-merge FE main workflow passed: build, 16 staging E2E tests, and the mobile responsiveness suite are all green.
 
 ## Financial safety observations
 
@@ -60,7 +60,7 @@
 - Verify API base URL and production build configuration; do not ship staging endpoints in the release build.
 
 ### P1 — Contract and legacy cleanup
-- Merge BE PR #30 after the FE main workflow is complete; it allows the local Vite origin only when E2E mode is enabled, to support SignalR/mobile-responsiveness tests.
+- BE PR #30 is merged; it allows the local Vite origin only when E2E mode is enabled, to support SignalR/mobile-responsiveness tests. Confirm the post-deploy logs no longer report CORS rejection for that origin.
 - Complete a focused source audit of remaining retired Ozow/wallet classes and remove or explicitly quarantine unused legacy paths only after confirming there are no active references.
 - Refresh the rest of the September 18 audit line-by-line; its historical table still contains outdated Ozow/refund/authorization claims.
 
