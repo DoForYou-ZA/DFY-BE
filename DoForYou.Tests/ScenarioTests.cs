@@ -1,3 +1,4 @@
+// Full DFY staging scenario validation runs alongside the API unit scenarios.
 using System.Security.Claims;
 using System.Text.Json;
 using DoForYou.API.Controllers;
