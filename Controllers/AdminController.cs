@@ -498,7 +498,8 @@ public class AdminController : ControllerBase
                 .Where(t => t.Id == task.Id)
                 .Select(t => new { t.TaskStatus, t.PaymentStatus, t.EscrowStatus })
                 .FirstOrDefaultAsync();
-            released = currentState?.TaskStatus == "PayoutPending" &&
+            released = currentState is not null &&
+                       currentState.TaskStatus == "PayoutPending" &&
                        currentState.PaymentStatus == "EscrowReleased" &&
                        currentState.EscrowStatus == "released";
         }
