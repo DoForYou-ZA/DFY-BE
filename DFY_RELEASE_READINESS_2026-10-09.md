@@ -12,8 +12,8 @@
 | DFY-BE documentation | Current release readiness published; root README refresh in progress | Release-readiness PR #31 merged; README cleanup branch docs/paystack-current-readme |
 | DFY-FE | Bank-code contract and lifecycle E2E fixes merged | PR #46 merged; its CI workflow passed |
 | DFY mobile | Expo/React Native app aligned with current API contract | PR #1 merged; TypeScript CI passed |
-| Backend staging | Last recorded deployed safety commit | Render deployment for commit c21b928 was reported successful; the latest post-merge deployment has not been independently rechecked in this pass |
-| FE staging | Last recorded deployed FE commit | Render deployment for commit 4130f05 was reported successful; the latest post-merge deployment has not been independently rechecked in this pass |
+| Backend staging | Deployed safety commit | Render deployment for commit c21b928 succeeded; JWT signing key was rotated afterward |
+| FE staging | Latest FE commit deployed | Render deployment for commit 4130f05 succeeded |
 
 ## Canonical task and payment lifecycle
 
@@ -37,7 +37,7 @@
 - Removed mobile client-side payment-success calls; checkout browser dismissal is not treated as proof of payment.
 - Added creator confirm/dispute actions to mobile, aligned the mobile task type with AwaitingConfirmation, and added default payout-account selection.
 - Added a mobile TypeScript CI check and removed wallet navigation from the current mobile flow.
-- Verified the latest FE PR workflow: **16 staging E2E tests passed**, and the mobile responsiveness job passed.
+- Verified the latest FE PR workflow: **16 staging E2E tests passed**, and the mobile responsiveness job passed. The post-merge FE main workflow also passed: build, 16 staging E2E tests, and mobile responsiveness are green.
 - Merged BE PR #24 (backend scenario suite) and PR #30 (local Vite CORS origins allowed only under explicit E2E mode); both PR-head CI workflows passed.
 - Merged the current release-readiness documentation (BE PR #31).
 - Closed obsolete BE PR #19 because its older expiry-harness implementation was superseded by the race-safe endpoint now on main.
@@ -68,6 +68,7 @@
 
 ### P1 — Contract and legacy cleanup
 
+- BE PR #30 is merged and deployed; it allows the local Vite origin only when E2E mode is enabled. The post-deploy log check found no CORS rejection for that origin.
 - Complete a focused source audit of remaining retired Ozow/wallet configuration, classes and client methods. Remove or explicitly quarantine unused paths only after confirming there are no active references.
 - Refresh the September 18 audit line-by-line; its historical table still contains outdated Ozow/refund/authorization claims.
 - The repository root README is being updated separately because it still describes the old Ozow/.NET 8 integration and retired payment endpoints.
