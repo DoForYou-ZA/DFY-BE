@@ -17,6 +17,12 @@ if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("DOTNET_HOSTBUI
 
 var builder = WebApplication.CreateBuilder(args);
 
+// SignalR WebSocket clients must pass access_token in the query string during
+// negotiation. ASP.NET Hosting.Diagnostics logs the full request URL at Info,
+// which would write bearer tokens into Render logs. Suppress framework request
+// URL info logs; keep warnings/errors and application logs enabled.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
+
 builder.Configuration["Ozow:SiteCode"] =
     Environment.GetEnvironmentVariable("OZOW_SITE_CODE")
     ?? builder.Configuration["Ozow:SiteCode"];
