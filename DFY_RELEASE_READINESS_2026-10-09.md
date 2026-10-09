@@ -9,9 +9,9 @@
 | Area | Current state | Evidence |
 |---|---|---|
 | DFY-BE | Paystack/escrow hardening merged; CI scenario suite and staging-only E2E CORS support merged | PRs #27, #28, #29, #24 and #30 merged; CI passed on PR #24 and #30 heads |
-| DFY-BE documentation | Current release readiness published; root README refresh in progress | Release-readiness PR #31 merged; README cleanup branch docs/paystack-current-readme |
+| DFY-BE documentation | Current Paystack/.NET 9 README and release-readiness note merged | README refresh PR #33 merged; backend release-readiness report updated after scenario/CORS merges |
 | DFY-FE | Bank-code contract and lifecycle E2E fixes merged | PR #46 merged; its CI workflow passed |
-| DFY mobile | Expo/React Native app aligned with current API contract | PR #1 merged; TypeScript CI passed |
+| DFY mobile | API configuration, secure native token storage, and bundle CI merged; native Android build validation in progress | PRs #1–#4 merged; PR #5 adds native debug APK build and artifact upload |
 | Backend staging | Deployed safety commit | Render deployment for commit c21b928 succeeded; JWT signing key was rotated afterward |
 | FE staging | Latest FE commit deployed | Render deployment for commit 4130f05 succeeded |
 
@@ -36,10 +36,12 @@
 - Fixed the FE bank selector to use bankCode as the primary field and use valid creator fixtures for E2E payment initialization.
 - Removed mobile client-side payment-success calls; checkout browser dismissal is not treated as proof of payment.
 - Added creator confirm/dispute actions to mobile, aligned the mobile task type with AwaitingConfirmation, and added default payout-account selection.
-- Added a mobile TypeScript CI check and removed wallet navigation from the current mobile flow.
+- Added mobile TypeScript and Android JavaScript bundle validation in CI, made API/SignalR endpoints build-configurable, documented setup, and moved native access tokens to SecureStore with migration from legacy AsyncStorage.
 - Verified the latest FE PR workflow: **16 staging E2E tests passed**, and the mobile responsiveness job passed. The post-merge FE main workflow also passed: build, 16 staging E2E tests, and mobile responsiveness are green.
 - Merged BE PR #24 (backend scenario suite) and PR #30 (local Vite CORS origins allowed only under explicit E2E mode); both PR-head CI workflows passed.
-- Merged the current release-readiness documentation (BE PR #31).
+- Merged the current release-readiness documentation (BE PR #31) and replaced the root README's obsolete Ozow/.NET 8 instructions with the Paystack/.NET 9 contract (BE PR #33).
+- Fixed a registration reliability bug by awaiting the admin notification inside the request scope and treating notification failure as non-fatal (BE PR #35; backend CI passed).
+- Added an Android debug APK build job in mobile PR #5. The first run exposed the retired Android SDK 'tools' package in setup-android v3; the workflow now uses v4 and the rerun is still in progress.
 - Closed obsolete BE PR #19 because its older expiry-harness implementation was superseded by the race-safe endpoint now on main.
 
 ## Financial safety observations
@@ -61,7 +63,8 @@
 
 ### P1 — Mobile release
 
-- Run a native Android build from dfy-mobile (and iOS if supported); current mobile CI verifies TypeScript, not a distributable native binary.
+- Complete mobile PR #5's native Android debug build workflow and upload the APK artifact; the SDK setup fix is in place, but the Gradle build is still running and is not yet confirmed green.
+- Install the resulting debug APK on an emulator/device and smoke-test login, task creation/checkout handoff, runner task acceptance/completion, creator confirmation/dispute, bank setup, and payout status.
 - Install on a real/emulated device and smoke-test login, task creation/checkout handoff, runner task acceptance/completion, creator confirmation/dispute, bank setup, and payout status.
 - Verify API base URL and production build configuration; do not ship staging endpoints in the release build.
 - Confirm the app never treats browser dismissal or a client-side response as payment confirmation.
@@ -71,7 +74,7 @@
 - BE PR #30 is merged and deployed; it allows the local Vite origin only when E2E mode is enabled. The post-deploy log check found no CORS rejection for that origin.
 - Complete a focused source audit of remaining retired Ozow/wallet configuration, classes and client methods. Remove or explicitly quarantine unused paths only after confirming there are no active references.
 - Refresh the September 18 audit line-by-line; its historical table still contains outdated Ozow/refund/authorization claims.
-- The repository root README is being updated separately because it still describes the old Ozow/.NET 8 integration and retired payment endpoints.
+- A focused source audit of remaining legacy Ozow/wallet configuration and code paths is still required before removing any compatibility code.
 
 ## Release decision
 
