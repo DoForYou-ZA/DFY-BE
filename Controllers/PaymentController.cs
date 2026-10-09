@@ -136,7 +136,7 @@ public class PaymentController : ControllerBase
         if (task == null)
         {
             _logger.LogWarning("Paystack charge.success received for unknown reference {Reference}.", reference);
-            return NotFound();
+            return Ok();
         }
 
         var expectedAmount = task.Budget;
@@ -284,12 +284,12 @@ public class PaymentController : ControllerBase
         if (refund == null)
         {
             _logger.LogWarning("Paystack refund event {RefundId} has no matching DFY refund.", refundId);
-            return NotFound();
+            return Ok();
         }
 
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == refund.TaskId);
         if (task == null)
-            return NotFound();
+            return Ok();
 
         refund.LastReconciledAt = DateTime.UtcNow;
 
@@ -334,7 +334,7 @@ public class PaymentController : ControllerBase
                  string.Equals(providerStatus, "failed", StringComparison.OrdinalIgnoreCase))
         {
             refund.Status = "Failed";
-            refund.FailureReason = GetString(data, "customer_note") ?? "Paystack refund failed.";
+            refund.FailureReason = GetString(data, "merchant_note") ?? GetString(data, "message") ?? "Paystack refund failed.";
 
             task.PaymentStatus = "DisputePending";
             task.TaskStatus = "Completed";
@@ -372,18 +372,16 @@ public class PaymentController : ControllerBase
 
         var normalizedReference = NormalizeProviderReference(reference);
 
-        var payouts = await _context.Payouts
+        var payout = await _context.Payouts
             .Include(p => p.Task)
             .Where(p => p.Provider == "Paystack")
-            .ToListAsync();
-
-        var payout = payouts.FirstOrDefault(p =>
-            NormalizeProviderReference(p.MerchantReference) == normalizedReference);
+            .FirstOrDefaultAsync(p => p.MerchantReference == reference ||
+                NormalizeProviderReference(p.MerchantReference) == normalizedReference);
 
         if (payout == null)
         {
             _logger.LogWarning("Paystack transfer event {Reference} has no matching DFY payout.", reference);
-            return NotFound();
+            return Ok();
         }
 
         if (amountMinor.Value / 100m != payout.Amount)

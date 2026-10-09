@@ -438,7 +438,7 @@ public class BankingController : ControllerBase
     }
 
     [HttpGet("banks")]
-    [AllowAnonymous]
+    [Authorize]
     public async Task<ActionResult<ApiResponse<List<object>>>> GetSupportedBanks(
         CancellationToken cancellationToken)
     {

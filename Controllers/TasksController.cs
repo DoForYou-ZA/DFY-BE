@@ -202,7 +202,7 @@ public class TasksController : ControllerBase
         pageSize = Math.Clamp(pageSize, 1, 100);
         var query = _context.Tasks
             .Include(t => t.CreatedByUser)
-            .Where(t => t.PaymentStatus == "EscrowHeld" && t.TaskStatus == "Posted");
+            .Where(t => !t.IsDeleted && t.PaymentStatus == "EscrowHeld" && t.TaskStatus == "Posted");
 
         if (!string.IsNullOrEmpty(search)) query = query.Where(t => t.TaskDescription.Contains(search) || t.Area.Contains(search));
         if (!string.IsNullOrEmpty(category)) query = query.Where(t => t.Category == category);
@@ -248,7 +248,7 @@ public class TasksController : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
         var allTasksQuery = _context.Tasks
-            .Where(t => t.CreatedByUserId == userId);
+            .Where(t => t.CreatedByUserId == userId && !t.IsDeleted);
         var normalizedStatus = status?.Trim().ToLowerInvariant();
         if (!string.IsNullOrEmpty(normalizedStatus) &&
             normalizedStatus != "all" &&
@@ -344,7 +344,7 @@ public class TasksController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var tasks = await _context.Tasks.Where(t => t.CreatedByUserId == userId && t.TaskStatus == "PendingPayment").OrderByDescending(t => t.CreatedAt)
+        var tasks = await _context.Tasks.Where(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "PendingPayment").OrderByDescending(t => t.CreatedAt)
             .Select(t => new { taskId = t.TaskId, description = t.TaskDescription, budget = t.Budget, createdAt = t.CreatedAt, category = t.Category, area = t.Area })
             .Cast<object>().ToListAsync();
         return Ok(new ApiResponse<List<object>> { Success = true, Data = tasks, Message = "Pending payment tasks retrieved successfully" });
@@ -638,7 +638,7 @@ public class TasksController : ControllerBase
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 50);
         var query = _context.Tasks
-            .Where(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed");
+            .Where(t => t.AcceptedByUserId == userId && !t.IsDeleted && t.TaskStatus == "Claimed");
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         if (!string.IsNullOrWhiteSpace(taskId))
@@ -692,7 +692,7 @@ public class TasksController : ControllerBase
         page = Math.Max(1, page); pageSize = Math.Clamp(pageSize, 1, 100);
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var query = _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.CreatedByUserId == userId);
+        var query = _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.CreatedByUserId == userId && !t.IsDeleted);
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
         var tasks = await query.OrderByDescending(t => t.CreatedAt).Skip((page - 1) * pageSize).Take(pageSize).Select(t => new TaskDto
@@ -766,27 +766,27 @@ public class TasksController : ControllerBase
         var currentMonth = now.Month;
         var currentYear = now.Year;
 
-        var postedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId);
-        var pendingPayment = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "PendingPayment");
-        var creatorActiveTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && (t.TaskStatus == "Claimed" || t.TaskStatus == "PayoutPending"));
-        var awaitingConfirmation = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "AwaitingConfirmation");
-        var creatorCompletedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && t.TaskStatus == "RunnerPaid");
+        var postedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted);
+        var pendingPayment = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "PendingPayment");
+        var creatorActiveTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted && (t.TaskStatus == "Claimed" || t.TaskStatus == "PayoutPending"));
+        var awaitingConfirmation = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "AwaitingConfirmation");
+        var creatorCompletedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "RunnerPaid");
 
-        var totalSpent = await _context.Tasks.Where(t => t.CreatedByUserId == userId && t.TaskStatus == "RunnerPaid").SumAsync(t => t.Budget);
-        var thisMonthSpending = await _context.Tasks.Where(t => t.CreatedByUserId == userId && t.TaskStatus == "RunnerPaid" && t.UpdatedAt.Month == currentMonth && t.UpdatedAt.Year == currentYear).SumAsync(t => t.Budget);
+        var totalSpent = await _context.Tasks.Where(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "RunnerPaid").SumAsync(t => t.Budget);
+        var thisMonthSpending = await _context.Tasks.Where(t => t.CreatedByUserId == userId && !t.IsDeleted && t.TaskStatus == "RunnerPaid" && t.UpdatedAt.Month == currentMonth && t.UpdatedAt.Year == currentYear).SumAsync(t => t.Budget);
         var averageTaskCost = creatorCompletedTasks > 0 ? totalSpent / creatorCompletedTasks : 0;
 
-        var availableTasks = await _context.Tasks.CountAsync(t => t.TaskStatus == "Posted" && t.PaymentStatus == "EscrowHeld");
-        var runnerActiveTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed");
-        var runnerCompletedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && (t.TaskStatus == "AwaitingConfirmation" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid"));
+        var availableTasks = await _context.Tasks.CountAsync(t => !t.IsDeleted && t.TaskStatus == "Posted" && t.PaymentStatus == "EscrowHeld");
+        var runnerActiveTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && !t.IsDeleted && t.TaskStatus == "Claimed");
+        var runnerCompletedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && !t.IsDeleted && (t.TaskStatus == "AwaitingConfirmation" || t.TaskStatus == "PayoutPending" || t.TaskStatus == "RunnerPaid"));
 
-        var completedPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && p.Status == "Completed").ToListAsync();
-        var totalEarnings = completedPayouts.Sum(p => p.Amount);
+        var totalEarnings = await _context.Payouts.Where(p => p.RunnerId == userId && p.Status == "Completed").SumAsync(p => p.Amount);
         var pendingPayouts = await _context.Payouts.Where(p => p.RunnerId == userId && (p.Status == "Pending" || p.Status == "Processing" || p.Status == "AwaitingFunds" || p.Status == "AwaitingBankDetails")).SumAsync(p => p.Amount);
-        var thisMonthEarnings = completedPayouts.Where(p => p.CompletedAt.HasValue && p.CompletedAt.Value.Month == currentMonth && p.CompletedAt.Value.Year == currentYear).Sum(p => p.Amount);
-        var totalAcceptedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId);
+        var thisMonthEarnings = await _context.Payouts.Where(p => p.RunnerId == userId && p.Status == "Completed" && p.CompletedAt.HasValue && p.CompletedAt.Value.Month == currentMonth && p.CompletedAt.Value.Year == currentYear).SumAsync(p => p.Amount);
+        var totalAcceptedTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && !t.IsDeleted);
         var completionRate = totalAcceptedTasks > 0 ? (runnerCompletedTasks * 100) / totalAcceptedTasks : 0;
-        var averageEarning = completedPayouts.Count > 0 ? totalEarnings / completedPayouts.Count : 0;
+        var completedPayoutCount = await _context.Payouts.CountAsync(p => p.RunnerId == userId && p.Status == "Completed");
+        var averageEarning = completedPayoutCount > 0 ? totalEarnings / completedPayoutCount : 0;
 
         return Ok(new ApiResponse<object>
         {
@@ -808,7 +808,7 @@ public class TasksController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
         limit = Math.Clamp(limit, 1, 20);
-        var activities = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => t.CreatedByUserId == userId || t.AcceptedByUserId == userId).OrderByDescending(t => t.UpdatedAt).Take(limit)
+        var activities = await _context.Tasks.Include(t => t.CreatedByUser).Where(t => !t.IsDeleted && (t.CreatedByUserId == userId || t.AcceptedByUserId == userId)).OrderByDescending(t => t.UpdatedAt).Take(limit)
             .Select(t => new { id = t.Id, taskId = t.TaskId, description = t.TaskDescription, status = t.TaskStatus, updatedAt = t.UpdatedAt, type = t.CreatedByUserId == userId ? "created" : "accepted" }).Cast<object>().ToListAsync();
         return Ok(new ApiResponse<List<object>> { Success = true, Data = activities });
     }
@@ -818,7 +818,7 @@ public class TasksController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var payments = await _context.Tasks.Where(t => t.CreatedByUserId == userId && (t.PaymentStatus == "EscrowHeld" || t.PaymentStatus == "EscrowReleased"))
+        var payments = await _context.Tasks.Where(t => t.CreatedByUserId == userId && !t.IsDeleted && (t.PaymentStatus == "EscrowHeld" || t.PaymentStatus == "EscrowReleased"))
             .OrderByDescending(t => t.UpdatedAt).Select(t => new { taskId = t.TaskId, amount = t.Budget, status = t.PaymentStatus, date = t.UpdatedAt, description = t.TaskDescription }).Cast<object>().ToListAsync();
         return Ok(new ApiResponse<List<object>> { Success = true, Data = payments, Message = "Payment history retrieved successfully" });
     }
@@ -837,6 +837,7 @@ public class TasksController : ControllerBase
 
         var allTasksQuery = _context.Tasks
             .Where(t => t.AcceptedByUserId == userId &&
+                        !t.IsDeleted &&
                         (t.TaskStatus == "AwaitingConfirmation" ||
                          t.TaskStatus == "Completed" ||
                          t.TaskStatus == "PayoutPending" ||

@@ -31,15 +31,24 @@ public class UserController : ControllerBase
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return NotFound();
 
+        var hasVerifiedBank = await _context.BankAccounts.AnyAsync(b =>
+            b.UserId == userId.Value &&
+            b.IsActive &&
+            b.IsVerified &&
+            b.ProviderReference != null &&
+            b.ProviderReference != "");
+
         return Ok(new ApiResponse<object> {
             Success = true,
             Data = new {
                 id = user.Id, firstName = user.FirstName, lastName = user.LastName, email = user.Email,
                 phoneNumber = user.PhoneNumber, address = user.Address, userType = user.UserType,
                 idNumber = user.IdNumber, dateOfBirth = user.DateOfBirth, username = user.Username,
-                profileCompleted = _userPolicyService.IsProfileComplete(user), profileCompletion = _userPolicyService.GetProfileCompletion(user),
-                missingProfileFields = _userPolicyService.GetMissingProfileFields(user),
-                canCreateTasks = _userPolicyService.CanCreateTasks(user), canAcceptTasks = _userPolicyService.CanAcceptTasks(user),
+                profileCompleted = _userPolicyService.IsProfileComplete(user, hasVerifiedBank),
+                profileCompletion = _userPolicyService.GetProfileCompletion(user, hasVerifiedBank),
+                missingProfileFields = _userPolicyService.GetMissingProfileFields(user, hasVerifiedBank),
+                canCreateTasks = _userPolicyService.CanCreateTasks(user),
+                canAcceptTasks = _userPolicyService.CanAcceptTasks(user, hasVerifiedBank),
                 rating = user.Rating, completedTasks = user.CompletedTasks, isVerified = user.IsVerified,
                 emailVerified = user.EmailVerified, phoneVerified = user.PhoneVerified, isAvailable = user.IsAvailable,
                 bio = user.Bio, serviceCategories = user.ServiceCategories, coverageArea = user.CoverageArea,
@@ -99,10 +108,10 @@ public class UserController : ControllerBase
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
-        var postedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId);
-        var activeTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && t.TaskStatus == "Claimed");
-        var completedTasks = await _context.Tasks.CountAsync(t => (t.CreatedByUserId == userId || t.AcceptedByUserId == userId) && t.TaskStatus == "Completed");
-        var totalEarnings = await _context.Tasks.Where(t => t.AcceptedByUserId == userId && t.TaskStatus == "Completed").SumAsync(t => t.Budget);
+        var postedTasks = await _context.Tasks.CountAsync(t => t.CreatedByUserId == userId && !t.IsDeleted);
+        var activeTasks = await _context.Tasks.CountAsync(t => t.AcceptedByUserId == userId && !t.IsDeleted && t.TaskStatus == "Claimed");
+        var completedTasks = await _context.Tasks.CountAsync(t => !t.IsDeleted && (t.CreatedByUserId == userId || t.AcceptedByUserId == userId) && t.TaskStatus == "Completed");
+        var totalEarnings = await _context.Tasks.Where(t => t.AcceptedByUserId == userId && !t.IsDeleted && t.TaskStatus == "Completed").SumAsync(t => t.Budget);
         return Ok(new ApiResponse<object> { Success = true, Data = new { postedTasks, activeTasks, completedTasks, totalEarnings } });
     }
 

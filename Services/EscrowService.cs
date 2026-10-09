@@ -154,14 +154,7 @@ public class EscrowService : IEscrowService
         }
     }
 
-    public async Task<int> AutoReleaseExpiredEscrowsAsync()
-    {
-        var expiredTasks = await _context.Tasks.Where(t => t.TaskStatus == "AwaitingConfirmation" && t.EscrowStatus == "held" && t.PaymentStatus == "EscrowHeld" && t.EscrowHoldUntil.HasValue && t.EscrowHoldUntil <= DateTime.UtcNow).ToListAsync();
-        int count = 0;
-        foreach (var task in expiredTasks)
-            if (await ReleaseEscrowAsync(task.Id)) count++;
-        return count;
-    }
+    public System.Threading.Tasks.Task<int> AutoReleaseExpiredEscrowsAsync() => System.Threading.Tasks.Task.FromResult(0);
 
     public decimal CalculateCommission(decimal amount) => Math.Max(amount * 0.15m, 5.00m);
 }

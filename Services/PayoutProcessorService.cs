@@ -153,7 +153,7 @@ public sealed class PayoutProcessorService(
 
             payout.Status = awaitingFunds ? "AwaitingFunds" : "Processing";
             payout.ProcessingError = result.Error;
-            payout.NextAttemptAt = DateTime.UtcNow.AddMinutes(awaitingFunds ? 5 : 5);
+            payout.NextAttemptAt = DateTime.UtcNow.AddMinutes(awaitingFunds ? 30 : 5);
             payout.Task.PayoutStatus = awaitingFunds ? "AwaitingFunds" : "Processing";
         }
         else
