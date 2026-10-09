@@ -13,7 +13,7 @@
 | DFY mobile | Expo/React Native app aligned with current API contract | PR #1 merged; TypeScript CI passed |
 | Backend staging | Live on the latest safety commit | Render deployment for commit `c21b928` succeeded; JWT signing key rotated afterward |
 | FE staging | Latest FE commit deployed | Render deployment for commit `4130f05` succeeded |
-| CORS E2E support | Merged; staging deployment is being verified | BE PR #30 merged; BE CI passed |
+| CORS E2E support | Merged and deployed | BE PR #30 merged; BE CI passed; no CORS rejection observed in the post-deploy log window |
 
 ## Canonical task and payment lifecycle
 
@@ -60,7 +60,7 @@
 - Verify API base URL and production build configuration; do not ship staging endpoints in the release build.
 
 ### P1 — Contract and legacy cleanup
-- BE PR #30 is merged; it allows the local Vite origin only when E2E mode is enabled, to support SignalR/mobile-responsiveness tests. Confirm the post-deploy logs no longer report CORS rejection for that origin.
+- BE PR #30 is merged and deployed; it allows the local Vite origin only when E2E mode is enabled, to support SignalR/mobile-responsiveness tests. The post-deploy log check found no CORS rejection for that origin.
 - Complete a focused source audit of remaining retired Ozow/wallet classes and remove or explicitly quarantine unused legacy paths only after confirming there are no active references.
 - Refresh the rest of the September 18 audit line-by-line; its historical table still contains outdated Ozow/refund/authorization claims.
 
