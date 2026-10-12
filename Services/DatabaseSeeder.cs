@@ -79,8 +79,11 @@ public static class DatabaseSeeder
                 EmailVerified = true,
                 PhoneVerified = true,
                 Roles = "User",
-                UserType = "Both",
-                PhoneNumber = "0795258611"
+                UserType = "both",
+                PhoneNumber = "0795258611",
+                IdNumber = "9001015009087",
+                Address = "123 Test Street, Johannesburg",
+                DateOfBirth = new DateTime(1990, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             };
 
             context.Users.Add(testUser);
