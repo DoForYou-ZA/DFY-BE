@@ -65,10 +65,10 @@ public sealed class UserPolicyService : IUserPolicyService
     }
 
     public bool CanCreateTasks(User user) =>
-        IsProfileComplete(user) && NormalizeUserType(user.UserType) is "creator" or "both";
+        IsProfileComplete(user) && (NormalizeUserType(user.UserType) is "creator" or "both");
 
     public bool CanAcceptTasks(User user, bool hasVerifiedBank = true) =>
-        IsProfileComplete(user, hasVerifiedBank) && NormalizeUserType(user.UserType) is "runner" or "both";
+        IsProfileComplete(user, hasVerifiedBank) && (NormalizeUserType(user.UserType) is "runner" or "both");
 
     private static string NormalizeUserType(string? userType) =>
         userType?.Trim().ToLowerInvariant() ?? string.Empty;
