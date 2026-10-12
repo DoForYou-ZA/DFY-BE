@@ -55,10 +55,10 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("idNumber");
         if (!user.DateOfBirth.HasValue)
             missing.Add("dateOfBirth");
-        var userType = NormalizeUserType(user.UserType);
-        if (userType is not ("creator" or "runner" or "both"))
+        var userTypeLower = NormalizeUserType(user.UserType);
+        if (userTypeLower is not ("creator" or "runner" or "both"))
             missing.Add("userType");
-        if (userType is "runner" or "both" && !hasVerifiedBank)
+        if (userTypeLower is "runner" or "both" && !hasVerifiedBank)
             missing.Add("verifiedBankAccount");
 
         return missing;
