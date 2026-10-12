@@ -55,19 +55,20 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("idNumber");
         if (!user.DateOfBirth.HasValue)
             missing.Add("dateOfBirth");
-        if (user.UserType is not ("creator" or "runner" or "both"))
+        var userTypeLower = user.UserType?.ToLowerInvariant();
+        if (userTypeLower is not ("creator" or "runner" or "both"))
             missing.Add("userType");
-        if (user.UserType is "runner" or "both" && !hasVerifiedBank)
+        if (userTypeLower is "runner" or "both" && !hasVerifiedBank)
             missing.Add("verifiedBankAccount");
 
         return missing;
     }
 
     public bool CanCreateTasks(User user) =>
-        IsProfileComplete(user) && (user.UserType is "creator" or "both");
+        IsProfileComplete(user) && (user.UserType?.ToLowerInvariant() is "creator" or "both");
 
     public bool CanAcceptTasks(User user, bool hasVerifiedBank = true) =>
-        IsProfileComplete(user, hasVerifiedBank) && (user.UserType is "runner" or "both");
+        IsProfileComplete(user, hasVerifiedBank) && (user.UserType?.ToLowerInvariant() is "runner" or "both");
 
     public bool IsValidPhone(string value)
     {

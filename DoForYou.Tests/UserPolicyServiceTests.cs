@@ -21,8 +21,11 @@ public class UserPolicyServiceTests
 
     [Theory]
     [InlineData("creator", true, false)]
+    [InlineData("Creator", true, false)]
     [InlineData("runner", false, true)]
+    [InlineData("Runner", false, true)]
     [InlineData("both", true, true)]
+    [InlineData("Both", true, true)]
     public void Complete_user_gets_only_backend_allowed_capabilities(
         string userType,
         bool canCreate,
@@ -44,7 +47,7 @@ public class UserPolicyServiceTests
         user.Address = "just around";
 
         Assert.False(_policy.IsProfileComplete(user));
-        Assert.Equal(88, _policy.GetProfileCompletion(user));
+        Assert.Equal(89, _policy.GetProfileCompletion(user));
         Assert.Contains("address", _policy.GetMissingProfileFields(user));
         Assert.False(_policy.CanCreateTasks(user));
         Assert.False(_policy.CanAcceptTasks(user));

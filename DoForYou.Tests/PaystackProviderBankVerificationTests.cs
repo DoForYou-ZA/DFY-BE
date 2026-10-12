@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Task = System.Threading.Tasks.Task;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using DoForYou.API.Models;
@@ -82,12 +83,12 @@ public class PaystackProviderBankVerificationTests
         Assert.True(result.Success);
         Assert.Equal("RCP_TEST_PERSONAL_ZA_123456", result.ProviderReference);
         Assert.Equal(2, handler.Requests.Count);
-        Assert.Contains("/bank/validate", handler.Requests[0].RequestUri!.AbsolutePath);
-        Assert.Contains("/transferrecipient", handler.Requests[1].RequestUri!.AbsolutePath);
+        Assert.Contains("/bank/validate", handler.Requests[0].Request.RequestUri!.AbsolutePath);
+        Assert.Contains("/transferrecipient", handler.Requests[1].Request.RequestUri!.AbsolutePath);
 
         var recipientBody = handler.Requests[1].Body;
-        Assert.Contains(""type":"basa"", recipientBody);
-        Assert.Contains(""currency":"ZAR"", recipientBody);
+        Assert.Contains("\"type\":\"basa\"", recipientBody);
+        Assert.Contains("\"currency\":\"ZAR\"", recipientBody);
     }
 
     [Fact]
