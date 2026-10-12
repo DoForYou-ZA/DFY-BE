@@ -188,7 +188,7 @@ public class AuthController : ControllerBase
         
         if (user == null)
         {
-            return Ok(new AuthResponse
+            return Unauthorized(new AuthResponse
             {
                 Success = false,
                 Message = "Invalid email or password"
