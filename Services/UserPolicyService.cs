@@ -55,7 +55,7 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("idNumber");
         if (!user.DateOfBirth.HasValue)
             missing.Add("dateOfBirth");
-        var userTypeLower = user.UserType?.ToLowerInvariant();
+        var userTypeLower = NormalizeUserType(user.UserType);
         if (userTypeLower is not ("creator" or "runner" or "both"))
             missing.Add("userType");
         if (userTypeLower is "runner" or "both" && !hasVerifiedBank)
@@ -65,10 +65,13 @@ public sealed class UserPolicyService : IUserPolicyService
     }
 
     public bool CanCreateTasks(User user) =>
-        IsProfileComplete(user) && (user.UserType?.ToLowerInvariant() is "creator" or "both");
+        IsProfileComplete(user) && (NormalizeUserType(user.UserType) is "creator" or "both");
 
     public bool CanAcceptTasks(User user, bool hasVerifiedBank = true) =>
-        IsProfileComplete(user, hasVerifiedBank) && (user.UserType?.ToLowerInvariant() is "runner" or "both");
+        IsProfileComplete(user, hasVerifiedBank) && (NormalizeUserType(user.UserType) is "runner" or "both");
+
+    private static string NormalizeUserType(string? userType) =>
+        userType?.Trim().ToLowerInvariant() ?? string.Empty;
 
     public bool IsValidPhone(string value)
     {
