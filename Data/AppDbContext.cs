@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<Refund> Refunds { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<SupportTicket> SupportTickets { get; set; }
+    public DbSet<Testimonial> Testimonials { get; set; }
 
     public override int SaveChanges()
     {
@@ -66,6 +67,11 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.AcceptedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
 
+
+        modelBuilder.Entity<Testimonial>().Property(t => t.Name).HasMaxLength(100);
+        modelBuilder.Entity<Testimonial>().Property(t => t.Role).HasMaxLength(80);
+        modelBuilder.Entity<Testimonial>().Property(t => t.Text).HasMaxLength(1200);
+        modelBuilder.Entity<Testimonial>().HasIndex(t => new { t.IsPublished, t.SortOrder });
 
         modelBuilder.Entity<PaymentAttempt>()
             .HasIndex(p => p.Reference)
