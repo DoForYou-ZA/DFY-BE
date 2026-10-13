@@ -97,9 +97,41 @@ if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(jwtKey))
 if (!string.IsNullOrWhiteSpace(jwtKey) && jwtKey.Length < 32)
     throw new InvalidOperationException("JWT signing key must be at least 32 characters.");
 builder.Configuration["Jwt:Key"] = jwtKey;
-if (!builder.Environment.IsDevelopment() &&
-    string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("DefaultConnection")))
+var configuredConnectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(configuredConnectionString))
     throw new InvalidOperationException("DefaultConnection must be configured outside Development.");
+
+// Render/Neon deployments sometimes provide the standard postgres:// or postgresql:// URI,
+// while Npgsql's EF Core provider expects a semicolon-delimited connection string.
+// Normalize URI input without logging any connection details or credentials.
+if (!string.IsNullOrWhiteSpace(configuredConnectionString) &&
+    (configuredConnectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+     configuredConnectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase)))
+{
+    if (!Uri.TryCreate(configuredConnectionString, UriKind.Absolute, out var databaseUri) ||
+        string.IsNullOrWhiteSpace(databaseUri.Host) ||
+        string.IsNullOrWhiteSpace(databaseUri.UserInfo))
+        throw new InvalidOperationException("DefaultConnection PostgreSQL URI is invalid. Check its host and credentials.");
+
+    var userInfo = databaseUri.UserInfo.Split(':', 2);
+    if (userInfo.Length != 2)
+        throw new InvalidOperationException("DefaultConnection PostgreSQL URI must include a username and password.");
+
+    var databaseName = Uri.UnescapeDataString(databaseUri.AbsolutePath.TrimStart('/'));
+    if (string.IsNullOrWhiteSpace(databaseName))
+        throw new InvalidOperationException("DefaultConnection PostgreSQL URI must include a database name.");
+
+    var connectionBuilder = new Npgsql.NpgsqlConnectionStringBuilder
+    {
+        Host = databaseUri.Host,
+        Port = databaseUri.IsDefaultPort ? 5432 : databaseUri.Port,
+        Database = databaseName,
+        Username = Uri.UnescapeDataString(userInfo[0]),
+        Password = Uri.UnescapeDataString(userInfo[1]),
+        SslMode = Npgsql.SslMode.Require
+    };
+    configuredConnectionString = connectionBuilder.ConnectionString;
+}
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -108,7 +140,7 @@ builder.Services.AddSwaggerGen();
 
 // Database
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseNpgsql(configuredConnectionString));
 
 // Services
 builder.Services.AddScoped<IRulesEngine, RulesEngine>();
