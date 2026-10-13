@@ -30,6 +30,9 @@ public class User
     public string? Username { get; set; }
     public decimal WalletBalance { get; set; }
     public bool IsAvailable { get; set; } = true;
+    public bool IsArchived { get; set; }
+    public DateTime? ArchivedAt { get; set; }
+    public string? ArchivedReason { get; set; }
     public string? Bio { get; set; }
     public string? ServiceCategories { get; set; }
     public string? CoverageArea { get; set; }

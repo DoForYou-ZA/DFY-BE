@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using System.Security.Claims;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using DoForYou.API.Data;
@@ -181,6 +182,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     context.Token = accessToken;
                 }
                 return Task.CompletedTask;
+            },
+            OnTokenValidated = async context =>
+            {
+                var rawUserId = context.Principal?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (!int.TryParse(rawUserId, out var userId))
+                {
+                    context.Fail("The token does not identify a valid user.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var isActive = await db.Users.AsNoTracking()
+                    .AnyAsync(u => u.Id == userId && !u.IsArchived, context.HttpContext.RequestAborted);
+                if (!isActive)
+                    context.Fail("The account is archived or no longer active.");
             }
         };
     });

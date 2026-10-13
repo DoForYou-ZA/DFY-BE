@@ -51,7 +51,8 @@ public class AdminController : ControllerBase
     [HttpGet("dashboard")]
     public async Task<ActionResult<ApiResponse<object>>> GetDashboardStats()
     {
-        var totalUsers = await _context.Users.CountAsync();
+        var totalUsers = await _context.Users.CountAsync(u => !u.IsArchived);
+        var archivedUsers = await _context.Users.CountAsync(u => u.IsArchived);
         var totalTasks = await _context.Tasks.CountAsync();
         var pendingTasks = await _context.Tasks.CountAsync(t => t.TaskStatus == "PendingPayment");
         var activeTasks = await _context.Tasks.CountAsync(t => t.TaskStatus == "Posted");
@@ -87,6 +88,7 @@ public class AdminController : ControllerBase
             Data = new
             {
                 totalUsers,
+                archivedUsers,
                 totalTasks,
                 pendingTasks,
                 activeTasks,
@@ -295,14 +297,21 @@ public class AdminController : ControllerBase
     }
 
     [HttpGet("users")]
-    public async Task<ActionResult<ApiResponse<object>>> GetUsers([FromQuery] int page = 1, [FromQuery] int pageSize = 10)
+    public async Task<ActionResult<ApiResponse<object>>> GetUsers(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] bool includeArchived = false)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, 100);
-        var totalCount = await _context.Users.CountAsync();
-        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
-        var userRows = await _context.Users
+        IQueryable<Models.User> query = _context.Users.AsNoTracking();
+        if (!includeArchived)
+            query = query.Where(u => !u.IsArchived);
+
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        var userRows = await query
             .OrderByDescending(u => u.CreatedAt)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -325,7 +334,10 @@ public class AdminController : ControllerBase
             tasksCompleted = u.CompletedTasks,
             rating = u.Rating,
             lastLoginAt = u.LastLoginAt,
-            createdAt = u.CreatedAt
+            createdAt = u.CreatedAt,
+            isArchived = u.IsArchived,
+            archivedAt = u.ArchivedAt,
+            archivedReason = u.ArchivedReason
         }).ToList();
 
         return Ok(new ApiResponse<object>
@@ -337,7 +349,8 @@ public class AdminController : ControllerBase
                 totalCount,
                 page,
                 pageSize,
-                totalPages
+                totalPages,
+                includeArchived
             }
         });
     }
@@ -625,19 +638,92 @@ public class AdminController : ControllerBase
     [HttpDelete("users/{userId}")]
     public async Task<ActionResult<ApiResponse<bool>>> DeleteUser(int userId)
     {
-        var user = await _context.Users.FindAsync(userId);
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
         if (user == null)
             return NotFound(new ApiResponse<bool> { Success = false, Message = "User not found" });
 
-        var hasUserFinancialActivity =
-            user.WalletBalance != 0 ||
-            await _context.Tasks.AnyAsync(t => t.CreatedByUserId == userId || t.AcceptedByUserId == userId) ||
-            await _context.Payouts.AnyAsync(p => p.RunnerId == userId);
+        var adminId = GetAdminId();
+        if (adminId == userId)
+            return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "You cannot archive your own administrator account." });
 
-        if (hasUserFinancialActivity)
-            return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "Users with task or financial history cannot be hard-deleted. Deactivate or suspend the account instead." });
+        if (string.Equals(user.UserType, "admin", StringComparison.OrdinalIgnoreCase) ||
+            user.Roles?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Contains("Admin", StringComparer.OrdinalIgnoreCase) == true)
+            return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "Administrator accounts cannot be archived through user management." });
 
-        return Conflict(new ApiResponse<bool> { Success = false, Data = false, Message = "User deletion is disabled to preserve audit history." });
+        if (user.IsArchived)
+            return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "User is already archived." });
+
+        var oldValues = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            user.IsArchived,
+            user.ArchivedAt
+        });
+        user.IsArchived = true;
+        user.ArchivedAt = DateTime.UtcNow;
+        user.ArchivedReason = "Archived by an administrator through user management";
+
+        _context.AuditLogs.Add(new Models.AuditLog
+        {
+            UserId = adminId,
+            Action = "ArchiveUser",
+            EntityType = "User",
+            EntityId = user.Id,
+            OldValues = oldValues,
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                user.IsArchived,
+                user.ArchivedAt,
+                user.ArchivedReason
+            }),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
+        await _context.SaveChangesAsync();
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "User archived. Audit and task history have been retained." });
+    }
+
+    [HttpPost("users/{userId}/restore")]
+    public async Task<ActionResult<ApiResponse<bool>>> RestoreUser(int userId)
+    {
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null)
+            return NotFound(new ApiResponse<bool> { Success = false, Message = "User not found" });
+
+        if (!user.IsArchived)
+            return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "User is already active." });
+
+        var adminId = GetAdminId();
+        var oldValues = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            user.IsArchived,
+            user.ArchivedAt,
+            user.ArchivedReason
+        });
+        user.IsArchived = false;
+        user.ArchivedAt = null;
+        user.ArchivedReason = null;
+
+        _context.AuditLogs.Add(new Models.AuditLog
+        {
+            UserId = adminId,
+            Action = "RestoreUser",
+            EntityType = "User",
+            EntityId = user.Id,
+            OldValues = oldValues,
+            NewValues = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                user.IsArchived,
+                user.ArchivedAt,
+                user.ArchivedReason
+            }),
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "",
+            UserAgent = Request.Headers.UserAgent.ToString()
+        });
+
+        await _context.SaveChangesAsync();
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "User restored." });
     }
 
     [HttpGet("audit-logs")]

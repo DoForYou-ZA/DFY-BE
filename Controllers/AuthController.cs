@@ -186,7 +186,7 @@ public class AuthController : ControllerBase
         
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == cleanEmail);
         
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        if (user == null || user.IsArchived || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
         {
             return Unauthorized(new AuthResponse
             {
