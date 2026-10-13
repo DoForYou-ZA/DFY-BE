@@ -25,6 +25,7 @@ public class AppDbContext : DbContext
     public DbSet<Refund> Refunds { get; set; } = null!;
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<SupportTicket> SupportTickets { get; set; }
+    public DbSet<Testimonial> Testimonials { get; set; }
 
     public override int SaveChanges()
     {
