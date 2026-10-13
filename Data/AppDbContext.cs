@@ -67,10 +67,11 @@ public class AppDbContext : DbContext
             .HasForeignKey(t => t.AcceptedByUserId)
             .OnDelete(DeleteBehavior.SetNull);
 
-
         modelBuilder.Entity<Testimonial>().Property(t => t.Name).HasMaxLength(100);
         modelBuilder.Entity<Testimonial>().Property(t => t.Role).HasMaxLength(80);
         modelBuilder.Entity<Testimonial>().Property(t => t.Text).HasMaxLength(1200);
+        modelBuilder.Entity<Testimonial>().Property(t => t.IsPublished).HasDefaultValue(false);
+        modelBuilder.Entity<Testimonial>().Property(t => t.SortOrder).HasDefaultValue(0);
         modelBuilder.Entity<Testimonial>().HasIndex(t => new { t.IsPublished, t.SortOrder });
 
         modelBuilder.Entity<PaymentAttempt>()
