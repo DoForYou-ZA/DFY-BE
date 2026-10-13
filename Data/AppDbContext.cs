@@ -68,6 +68,11 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.SetNull);
 
 
+        modelBuilder.Entity<Testimonial>().Property(t => t.Name).HasMaxLength(100);
+        modelBuilder.Entity<Testimonial>().Property(t => t.Role).HasMaxLength(80);
+        modelBuilder.Entity<Testimonial>().Property(t => t.Text).HasMaxLength(1200);
+        modelBuilder.Entity<Testimonial>().HasIndex(t => new { t.IsPublished, t.SortOrder });
+
         modelBuilder.Entity<PaymentAttempt>()
             .HasIndex(p => p.Reference)
             .IsUnique();
