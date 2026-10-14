@@ -48,6 +48,131 @@ public class AdminController : ControllerBase
         await _context.SaveChangesAsync();
     }
 
+    /// <summary>
+    /// Read-only DFY ledger consistency report for paid/escrowed tasks.
+    /// This endpoint never calls a payment provider, changes financial state, or triggers payouts.
+    /// Provider settlement reconciliation must be performed separately against Paystack records.
+    /// </summary>
+    [HttpGet("financial-reconciliation")]
+    public async Task<ActionResult<ApiResponse<object>>> GetFinancialReconciliation(
+        [FromQuery] int days = 30,
+        [FromQuery] int limit = 250)
+    {
+        days = Math.Clamp(days, 1, 90);
+        limit = Math.Clamp(limit, 1, 500);
+        var since = DateTime.UtcNow.AddDays(-days);
+
+        var tasks = await _context.Tasks
+            .AsNoTracking()
+            .Where(t => t.UpdatedAt >= since &&
+                (t.PaymentStatus == "Completed" ||
+                 t.PaymentStatus == "EscrowHeld" ||
+                 t.TaskStatus == "PayoutPending" ||
+                 t.TaskStatus == "RunnerPaid"))
+            .OrderByDescending(t => t.UpdatedAt)
+            .Take(limit)
+            .Select(t => new
+            {
+                t.Id, t.TaskId, t.Budget, t.CommissionPercentage,
+                t.CommissionAmount, t.PayoutAmount, t.PaymentStatus,
+                t.TaskStatus, t.PayoutStatus, t.PaymentReference, t.UpdatedAt
+            })
+            .ToListAsync();
+
+        var taskIds = tasks.Select(t => t.Id).ToArray();
+        var attempts = await _context.PaymentAttempts.AsNoTracking()
+            .Where(p => taskIds.Contains(p.TaskId) && p.Provider == "Paystack")
+            .Select(p => new { p.TaskId, p.Reference, p.Amount, p.Status, p.TransactionId })
+            .ToListAsync();
+        var payments = await _context.Payments.AsNoTracking()
+            .Where(p => taskIds.Contains(p.TaskId) && p.Provider == "Paystack")
+            .Select(p => new { p.TaskId, p.PaymentId, p.Amount, p.Status, p.TransactionId })
+            .ToListAsync();
+        var payouts = await _context.Payouts.AsNoTracking()
+            .Where(p => taskIds.Contains(p.TaskId) && p.Provider == "Paystack")
+            .Select(p => new { p.TaskId, p.Amount, p.Status, p.MerchantReference, p.ProviderReference, p.CreatedAt })
+            .ToListAsync();
+        var refunds = await _context.Refunds.AsNoTracking()
+            .Where(r => taskIds.Contains(r.TaskId) && (r.Provider == null || r.Provider == "Paystack"))
+            .Select(r => new { r.TaskId, r.Amount, r.Status, r.RefundId })
+            .ToListAsync();
+
+        var rows = tasks.Select(task =>
+        {
+            var expectedCommission = _escrowService.CalculateCommission(task.Budget);
+            var expectedRunnerAmount = decimal.Round(
+                task.Budget - expectedCommission, 2, MidpointRounding.AwayFromZero);
+            var taskAttempts = attempts.Where(p => p.TaskId == task.Id).ToArray();
+            var taskPayments = payments.Where(p => p.TaskId == task.Id).ToArray();
+            var taskPayouts = payouts.Where(p => p.TaskId == task.Id).ToArray();
+            var taskRefunds = refunds.Where(p => p.TaskId == task.Id).ToArray();
+            var findings = new List<string>();
+
+            if (task.CommissionAmount != expectedCommission)
+                findings.Add("CommissionAmount differs from the backend commission calculation.");
+            if (task.PayoutAmount != expectedRunnerAmount)
+                findings.Add("PayoutAmount differs from budget minus backend commission.");
+            if (taskAttempts.Any(p => p.Amount != task.Budget))
+                findings.Add("At least one Paystack payment attempt amount differs from the task budget.");
+            if (taskPayments.Any(p => p.Amount != task.Budget))
+                findings.Add("At least one persisted Paystack payment amount differs from the task budget.");
+            if (taskPayouts.Any(p => p.Amount != task.PayoutAmount))
+                findings.Add("At least one Paystack payout amount differs from the persisted runner amount.");
+            if (taskPayouts.Count(p => p.Status is "Pending" or "Processing" or "Queued" or "Initiated") > 1)
+                findings.Add("Multiple non-terminal Paystack payout records exist for this task.");
+            if (taskRefunds.Any(r => r.Status is "Complete" or "Completed" or "Processed") &&
+                taskPayouts.Any(p => p.Status is "Pending" or "Processing" or "Queued" or "Initiated"))
+                findings.Add("A completed refund coexists with a pending/processing payout; manual review required.");
+
+            return new
+            {
+                taskId = task.TaskId,
+                internalTaskId = task.Id,
+                task.Budget,
+                task.CommissionPercentage,
+                persistedCommission = task.CommissionAmount,
+                expectedCommission,
+                persistedRunnerAmount = task.PayoutAmount,
+                expectedRunnerAmount,
+                task.PaymentStatus,
+                task.TaskStatus,
+                task.PayoutStatus,
+                task.PaymentReference,
+                paymentAttemptCount = taskAttempts.Length,
+                paymentAttempts = taskAttempts.Select(p => new { p.Reference, p.Amount, p.Status, p.TransactionId }),
+                paymentRecordCount = taskPayments.Length,
+                payments = taskPayments.Select(p => new { p.PaymentId, p.Amount, p.Status, p.TransactionId }),
+                payoutRecordCount = taskPayouts.Length,
+                payouts = taskPayouts.Select(p => new
+                {
+                    p.Amount, p.Status, p.MerchantReference, p.ProviderReference, p.CreatedAt
+                }),
+                refunds = taskRefunds.Select(r => new { r.Amount, r.Status, r.RefundId }),
+                findings,
+                isConsistent = findings.Count == 0,
+                task.UpdatedAt
+            };
+        }).ToList();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Message = "Read-only DFY ledger consistency report. Paystack settlement is not verified and no financial state is changed.",
+            Data = new
+            {
+                generatedAtUtc = DateTime.UtcNow,
+                sinceUtc = since,
+                days,
+                limit,
+                returnedTaskCount = rows.Count,
+                tasksWithFindings = rows.Count(r => !r.isConsistent),
+                findingCount = rows.Sum(r => r.findings.Count),
+                providerSettlementVerified = false,
+                rows
+            }
+        });
+    }
+
     [HttpGet("dashboard")]
     public async Task<ActionResult<ApiResponse<object>>> GetDashboardStats()
     {
