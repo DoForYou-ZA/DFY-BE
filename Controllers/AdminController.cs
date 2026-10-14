@@ -381,6 +381,149 @@ public class AdminController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Read-only financial operations queue for admin review. No payout, refund or task state is changed.
+    /// Chargeback deadlines are not represented here because the current data model has no dedicated
+    /// Paystack chargeback case entity.
+    /// </summary>
+    [HttpGet("payment-operations")]
+    public async Task<ActionResult<ApiResponse<object>>> GetPaymentOperations(
+        [FromQuery] int days = 30,
+        [FromQuery] int limit = 100,
+        CancellationToken cancellationToken = default)
+    {
+        days = Math.Clamp(days, 1, 90);
+        limit = Math.Clamp(limit, 1, 500);
+        var now = DateTime.UtcNow;
+        var since = now.AddDays(-days);
+
+        var payoutRows = await _context.Payouts.AsNoTracking()
+            .Where(p => p.CreatedAt >= since ||
+                p.Status == "Pending" || p.Status == "Processing" ||
+                p.Status == "Queued" || p.Status == "Initiated")
+            .OrderByDescending(p => p.UpdatedAt ?? p.CreatedAt)
+            .Take(limit)
+            .Select(p => new
+            {
+                p.Id,
+                taskReference = p.Task.TaskId,
+                taskStatus = p.Task.TaskStatus,
+                paymentStatus = p.Task.PaymentStatus,
+                p.Amount,
+                p.Provider,
+                p.Status,
+                p.MerchantReference,
+                p.ProviderReference,
+                p.AttemptCount,
+                p.LastAttemptAt,
+                p.NextAttemptAt,
+                p.FailureReason,
+                p.ProcessingError,
+                p.CreatedAt,
+                updatedAt = p.UpdatedAt ?? p.CreatedAt,
+                p.CompletedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var refundRows = await _context.Refunds.AsNoTracking()
+            .Where(r => r.CreatedAt >= since ||
+                r.Status == "Pending" || r.Status == "Submitted" ||
+                r.Status == "Processing" || r.Status == "Failed" ||
+                r.Status == "Returned")
+            .OrderByDescending(r => r.LastReconciledAt ?? r.CreatedAt)
+            .Take(limit)
+            .Select(r => new
+            {
+                r.Id,
+                taskReference = r.Task.TaskId,
+                r.Provider,
+                r.RefundId,
+                r.TransactionId,
+                r.Amount,
+                r.Status,
+                r.FailureReason,
+                r.CreatedAt,
+                r.SubmittedAt,
+                r.CompletedAt,
+                r.LastReconciledAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var disputeRows = await _context.Disputes.AsNoTracking()
+            .Where(d => d.CreatedAt >= since ||
+                d.Status == "Open" || d.Status == "Pending" ||
+                d.Status == "RefundPending")
+            .OrderByDescending(d => d.CreatedAt)
+            .Take(limit)
+            .Select(d => new
+            {
+                d.Id,
+                taskReference = d.Task.TaskId,
+                d.Category,
+                d.Status,
+                d.CreatedAt,
+                d.ResolvedAt
+            })
+            .ToListAsync(cancellationToken);
+
+        var failedPaymentAttempts = await _context.PaymentAttempts.AsNoTracking()
+            .Where(p => p.Provider == "Paystack" && p.CreatedAt >= since &&
+                (p.Status == "Failed" || p.Status == "Abandoned" || p.Status == "Duplicate"))
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(limit)
+            .Select(p => new
+            {
+                p.Reference,
+                p.Amount,
+                p.Status,
+                p.FailureReason,
+                p.CreatedAt,
+                taskReference = p.Task.TaskId
+            })
+            .ToListAsync(cancellationToken);
+
+        var stalePayouts = payoutRows.Count(p =>
+            p.Status is "Pending" or "Queued" or "Initiated" &&
+            now - p.updatedAt > TimeSpan.FromHours(24) ||
+            p.Status == "Processing" && now - p.updatedAt > TimeSpan.FromMinutes(30));
+        var unresolvedRefunds = refundRows.Count(r =>
+            r.Status is "Pending" or "Submitted" or "Processing" or "Failed" or "Returned");
+        var openDisputes = disputeRows.Count(d =>
+            d.Status is "Open" or "Pending" or "RefundPending");
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Message = "Read-only financial operations snapshot. Review provider references and dashboard records before corrective actions.",
+            Data = new
+            {
+                generatedAtUtc = now,
+                sinceUtc = since,
+                days,
+                limit,
+                summary = new
+                {
+                    payoutRecords = payoutRows.Count,
+                    pendingOrProcessingPayouts = payoutRows.Count(p =>
+                        p.Status is "Pending" or "Processing" or "Queued" or "Initiated"),
+                    failedOrReturnedPayouts = payoutRows.Count(p =>
+                        p.Status is "Failed" or "Returned" or "Reversed"),
+                    stalePayouts,
+                    refundRecords = refundRows.Count,
+                    unresolvedRefunds,
+                    openDisputes,
+                    failedPaymentAttempts = failedPaymentAttempts.Count,
+                    chargebackCaseTrackingAvailable = false
+                },
+                payouts = payoutRows,
+                refunds = refundRows,
+                disputes = disputeRows,
+                failedPaymentAttempts,
+                note = "This view does not create or retry transfers/refunds and does not change financial state. Paystack chargeback cases and external bank settlement credits require separate operational evidence. No full bank details or customer contact details are returned."
+            }
+        });
+    }
+
     [HttpGet("dashboard")]
     public async Task<ActionResult<ApiResponse<object>>> GetDashboardStats()
     {
