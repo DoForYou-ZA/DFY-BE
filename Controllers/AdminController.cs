@@ -483,9 +483,9 @@ public class AdminController : ControllerBase
             .ToListAsync(cancellationToken);
 
         var stalePayouts = payoutRows.Count(p =>
-            p.Status is "Pending" or "Queued" or "Initiated" &&
-            now - p.updatedAt > TimeSpan.FromHours(24) ||
-            p.Status == "Processing" && now - p.updatedAt > TimeSpan.FromMinutes(30));
+            ((p.Status is "Pending" or "Queued" or "Initiated") &&
+             now - p.updatedAt > TimeSpan.FromHours(24)) ||
+            (p.Status == "Processing" && now - p.updatedAt > TimeSpan.FromMinutes(30)));
         var unresolvedRefunds = refundRows.Count(r =>
             r.Status is "Pending" or "Submitted" or "Processing" or "Failed" or "Returned");
         var openDisputes = disputeRows.Count(d =>
