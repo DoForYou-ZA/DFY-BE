@@ -19,14 +19,16 @@ public class AdminController : ControllerBase
     private readonly IUserPolicyService _userPolicyService;
     private readonly IPaymentProvider _paymentProvider;
     private readonly IBankingService _bankingService;
+    private readonly IPaystackSettlementProvider _paystackSettlementProvider;
 
-    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IPaymentProvider paymentProvider, IBankingService bankingService)
+    public AdminController(AppDbContext context, IEscrowService escrowService, IUserPolicyService userPolicyService, IPaymentProvider paymentProvider, IBankingService bankingService, IPaystackSettlementProvider paystackSettlementProvider)
     {
         _context = context;
         _escrowService = escrowService;
         _userPolicyService = userPolicyService;
         _paymentProvider = paymentProvider;
         _bankingService = bankingService;
+        _paystackSettlementProvider = paystackSettlementProvider;
     }
 
     private int? GetAdminId() =>
@@ -46,6 +48,192 @@ public class AdminController : ControllerBase
             UserAgent = Request.Headers.UserAgent.ToString()
         });
         await _context.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Retrieves Paystack settlement batches and their transactions, then compares transaction
+    /// references and amounts with DFY's persisted payment records. Read-only; no money moves.
+    /// </summary>
+    [HttpGet("financial-reconciliation/paystack-settlements")]
+    public async Task<ActionResult<ApiResponse<object>>> GetPaystackSettlementReconciliation(
+        [FromQuery] DateTimeOffset? from = null,
+        [FromQuery] DateTimeOffset? to = null,
+        [FromQuery] int maxSettlements = 25,
+        CancellationToken cancellationToken = default)
+    {
+        var end = to?.ToUniversalTime() ?? DateTimeOffset.UtcNow;
+        var start = from?.ToUniversalTime() ?? end.AddDays(-30);
+        maxSettlements = Math.Clamp(maxSettlements, 1, 50);
+
+        if (end > DateTimeOffset.UtcNow.AddMinutes(5))
+            return BadRequest(new ApiResponse<object>
+            {
+                Success = false,
+                Message = "The settlement end date cannot be in the future."
+            });
+        if (start > end)
+            return BadRequest(new ApiResponse<object>
+            {
+                Success = false,
+                Message = "The settlement start date must be on or before the end date."
+            });
+        if ((end - start).TotalDays > 90)
+            return BadRequest(new ApiResponse<object>
+            {
+                Success = false,
+                Message = "Use a date range of 90 days or less; run separate reports for longer periods."
+            });
+
+        var providerResult = await _paystackSettlementProvider.GetSettlementsAsync(
+            start, end, maxSettlements, cancellationToken);
+
+        if (!providerResult.Success)
+            return StatusCode(StatusCodes.Status502BadGateway, new ApiResponse<object>
+            {
+                Success = false,
+                Message = providerResult.Error ?? "Paystack settlement records could not be retrieved.",
+                Data = new
+                {
+                    generatedAtUtc = DateTimeOffset.UtcNow,
+                    fromUtc = start,
+                    toUtc = end,
+                    provider = "Paystack",
+                    providerRecordsRetrieved = false
+                }
+            });
+
+        var references = providerResult.Transactions
+            .Select(t => t.Reference)
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Distinct()
+            .ToArray();
+
+        var attempts = references.Length == 0
+            ? new List<Models.PaymentAttempt>()
+            : await _context.PaymentAttempts.AsNoTracking()
+                .Where(p => p.Provider == "Paystack" && references.Contains(p.Reference))
+                .ToListAsync(cancellationToken);
+
+        var attemptByReference = attempts
+            .GroupBy(p => p.Reference, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToArray(), StringComparer.Ordinal);
+
+        var taskIds = attempts.Select(p => p.TaskId).Distinct().ToArray();
+        var tasks = taskIds.Length == 0
+            ? new List<Models.Task>()
+            : await _context.Tasks.AsNoTracking()
+                .Where(t => taskIds.Contains(t.Id))
+                .Select(t => new
+                {
+                    Task = t,
+                    t.Id
+                })
+                .Select(x => x.Task)
+                .ToListAsync(cancellationToken);
+
+        var taskById = tasks.ToDictionary(t => t.Id);
+        var payments = taskIds.Length == 0
+            ? new List<Models.Payment>()
+            : await _context.Payments.AsNoTracking()
+                .Where(p => taskIds.Contains(p.TaskId) && p.Provider == "Paystack")
+                .ToListAsync(cancellationToken);
+
+        var transactionRows = providerResult.Transactions.Select(transaction =>
+        {
+            attemptByReference.TryGetValue(transaction.Reference, out var matchingAttempts);
+            matchingAttempts ??= Array.Empty<Models.PaymentAttempt>();
+            var matchingTaskIds = matchingAttempts.Select(a => a.TaskId).Distinct().ToArray();
+            var matchingTasks = matchingTaskIds.Where(taskById.ContainsKey).Select(id => taskById[id]).ToArray();
+            var matchingPayments = payments.Where(p =>
+                matchingTaskIds.Contains(p.TaskId) &&
+                matchingAttempts.Any(a => a.TaskId == p.TaskId && a.Reference == transaction.Reference)).ToArray();
+            var findings = new List<string>();
+
+            if (matchingAttempts.Length == 0)
+                findings.Add("Paystack settlement transaction has no matching DFY payment attempt.");
+            if (matchingAttempts.Length > 1)
+                findings.Add("Multiple DFY payment attempts share this Paystack reference.");
+            if (matchingAttempts.Any(a => a.Amount != transaction.Amount))
+                findings.Add("Paystack transaction amount differs from the DFY payment-attempt amount.");
+            if (matchingTasks.Any(t => t.Budget != transaction.Amount))
+                findings.Add("Paystack transaction amount differs from the persisted task budget.");
+            if (matchingPayments.Any(p => p.Amount != transaction.Amount))
+                findings.Add("Paystack transaction amount differs from a persisted DFY payment record.");
+
+            return new
+            {
+                transaction.SettlementId,
+                transaction.Reference,
+                transaction.TransactionId,
+                transaction.Status,
+                transaction.Currency,
+                providerAmount = transaction.Amount,
+                providerFees = transaction.Fees,
+                transaction.PaidAt,
+                matchedTaskIds = matchingTasks.Select(t => t.TaskId),
+                matchingAttemptCount = matchingAttempts.Length,
+                localAttemptAmounts = matchingAttempts.Select(a => a.Amount),
+                localPaymentAmounts = matchingPayments.Select(p => p.Amount),
+                findings,
+                isConsistent = findings.Count == 0
+            };
+        }).ToList();
+
+        var providerReferences = new HashSet<string>(references, StringComparer.Ordinal);
+        var missingLocalAttempts = await _context.PaymentAttempts.AsNoTracking()
+            .Where(p => p.Provider == "Paystack" &&
+                p.CreatedAt >= start.UtcDateTime &&
+                p.CreatedAt <= end.UtcDateTime &&
+                (p.Status == "Completed" || p.Status == "Success" || p.Status == "Paid"))
+            .Select(p => new { p.Reference, p.Amount, p.Status, p.CreatedAt, p.TaskId })
+            .ToListAsync(cancellationToken);
+        var localSuccessfulAttemptsMissingFromSettlements = missingLocalAttempts
+            .Where(p => !providerReferences.Contains(p.Reference))
+            .Select(p => new { p.Reference, p.Amount, p.Status, p.CreatedAt, p.TaskId })
+            .ToList();
+
+        var settlementSummary = providerResult.Settlements.Select(s => new
+        {
+            s.Id,
+            s.Status,
+            s.Currency,
+            s.Domain,
+            grossProcessed = s.TotalProcessed,
+            settlementAmount = s.TotalAmount,
+            effectiveAmount = s.EffectiveAmount,
+            providerFees = s.TotalFees,
+            s.SettlementDate
+        }).ToList();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Message = providerResult.IsComplete
+                ? "Paystack settlement records were retrieved and compared with DFY payment records. Review findings before any corrective action."
+                : "Partial Paystack settlement data was retrieved. Narrow the date window and rerun before treating this report as complete.",
+            Data = new
+            {
+                generatedAtUtc = DateTimeOffset.UtcNow,
+                fromUtc = start,
+                toUtc = end,
+                provider = "Paystack",
+                providerDomain = providerResult.Settlements.Select(s => s.Domain).Distinct(),
+                providerRecordsRetrieved = true,
+                reconciliationComplete = providerResult.IsComplete,
+                providerError = providerResult.Error,
+                settlementCount = settlementSummary.Count,
+                settlementGrossProcessed = settlementSummary.Sum(s => s.grossProcessed),
+                settlementAmount = settlementSummary.Sum(s => s.settlementAmount),
+                settlementEffectiveAmount = settlementSummary.Sum(s => s.effectiveAmount),
+                settlementFees = settlementSummary.Sum(s => s.providerFees),
+                transactionCount = transactionRows.Count,
+                transactionFindings = transactionRows.Count(t => !t.isConsistent),
+                localSuccessfulAttemptsMissingFromSettlements,
+                settlements = settlementSummary,
+                transactions = transactionRows,
+                note = "Settlement batches represent funds Paystack sends to the merchant settlement account. This report does not reconcile runner transfer fees, chargebacks outside the returned date window, bank-statement credits, or legal escrow/safeguarding status. It never changes financial state."
+            }
+        });
     }
 
     /// <summary>
