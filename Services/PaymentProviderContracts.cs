@@ -54,6 +54,43 @@ public record BankVerificationResultV2(
     string Message,
     string? ProviderReference = null);
 
+public sealed record PaystackSettlementRecord(
+    string Id,
+    string Status,
+    string Currency,
+    decimal TotalAmount,
+    decimal EffectiveAmount,
+    decimal TotalFees,
+    decimal TotalProcessed,
+    DateTimeOffset? SettlementDate,
+    string Domain);
+
+public sealed record PaystackSettlementTransaction(
+    string SettlementId,
+    string Reference,
+    string Status,
+    string Currency,
+    decimal Amount,
+    decimal? Fees,
+    string? TransactionId,
+    DateTimeOffset? PaidAt);
+
+public sealed record PaystackSettlementReadResult(
+    bool Success,
+    bool IsComplete,
+    IReadOnlyList<PaystackSettlementRecord> Settlements,
+    IReadOnlyList<PaystackSettlementTransaction> Transactions,
+    string? Error);
+
+public interface IPaystackSettlementProvider
+{
+    Task<PaystackSettlementReadResult> GetSettlementsAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int maxSettlements = 25,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IPaymentProvider
 {
     Task<PaymentCreationResult> CreatePaymentAsync(

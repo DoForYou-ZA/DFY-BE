@@ -253,6 +253,7 @@ builder.Services.AddSingleton<PaystackProvider>();
 builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<PaystackProvider>());
 builder.Services.AddSingleton<IPayoutProvider>(sp => sp.GetRequiredService<PaystackProvider>());
 builder.Services.AddSingleton<IBankProvider>(sp => sp.GetRequiredService<PaystackProvider>());
+builder.Services.AddSingleton<IPaystackSettlementProvider>(sp => sp.GetRequiredService<PaystackProvider>());
 builder.Services.AddHostedService<PayoutProcessorService>();
 
 var app = builder.Build();
