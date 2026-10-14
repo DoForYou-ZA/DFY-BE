@@ -123,12 +123,6 @@ public class AdminController : ControllerBase
             ? new List<Models.Task>()
             : await _context.Tasks.AsNoTracking()
                 .Where(t => taskIds.Contains(t.Id))
-                .Select(t => new
-                {
-                    Task = t,
-                    t.Id
-                })
-                .Select(x => x.Task)
                 .ToListAsync(cancellationToken);
 
         var taskById = tasks.ToDictionary(t => t.Id);
