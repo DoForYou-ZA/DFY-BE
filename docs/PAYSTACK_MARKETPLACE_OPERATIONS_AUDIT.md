@@ -129,6 +129,43 @@ Run only against a controlled staging deployment and Paystack Test Mode credenti
 7. **P2 — Optional bulk transfers:** consider only after single transfers, balance monitoring, approvals and reconciliation are reliable.
 8. **P2 — Split payments/subaccounts:** only after Paystack confirms the use case and timing is compatible with DFY's hold/dispute workflow. Keep disabled until then.
 
+## Implemented reconciliation and operations endpoints
+
+The following read-only endpoints are implemented in the current reconciliation change set. They require an authenticated user with the existing Admin role. They do not initiate refunds, create payouts, or modify ledger state.
+
+### DFY ledger consistency
+
+`GET /api/v1/admin/financial-reconciliation?days=30&limit=250`
+
+Compares persisted task budget, commission and runner net payout against the backend's canonical commission calculation, and checks related Paystack payment attempts, payment records, payout records and refunds. This is an internal ledger check only; it does not query Paystack settlement data.
+
+### Paystack settlement reconciliation
+
+`GET /api/v1/admin/financial-reconciliation/paystack-settlements?from=2026-10-01T00:00:00Z&to=2026-10-14T00:00:00Z&maxSettlements=25`
+
+The endpoint retrieves settlement batches and their transaction pages using the documented Paystack Settlements API, converts minor units to decimal amounts, and matches provider references against DFY payment attempts. It reports:
+- Settlement totals and provider fees grouped by currency, without summing different currencies together.
+- Provider transaction references, amounts and fees, and matched DFY task/payment records.
+- Amount/currency/status/commission/net-payout discrepancies and unmatched references.
+- `reconciliationComplete=false` if provider pagination limits mean the returned data may be partial.
+
+The date range must be 90 days or less. Settlement records are not proof that the business bank account has received the credit; compare successful settlement records against the actual bank statement. A local successful payment absent from the returned settlement window is a candidate for investigation, not proof of a missing settlement, because payment and settlement dates can differ.
+
+### Payment operations queue
+
+`GET /api/v1/admin/payment-operations?days=30&limit=100`
+
+Shows recent and active payout records, refunds, task disputes and failed Paystack payment attempts, with counts for stale payouts and unresolved items. It intentionally excludes full bank-account details and customer contact information. The current data model does not yet track Paystack chargeback cases and response deadlines as a separate entity; this endpoint explicitly reports that limitation.
+
+### Operator workflow
+
+1. Run the DFY ledger report for the same operational window.
+2. Run Paystack settlement reconciliation with a narrow enough date range to return complete data.
+3. Investigate all mismatched references, amounts, currencies, fees and local records not found in the provider results.
+4. Compare Paystack settlement records against the merchant bank statement and separately reconcile runner transfer statuses/fees.
+5. Use the operations queue to review stale/failed payouts, refunds and disputes.
+6. Record the review and any corrective action through the approved audited operational process. Never edit production money state directly to make a report balance.
+
 ## Production sign-off checklist
 
 A release owner should attach evidence for all of the following before approving live payments:
