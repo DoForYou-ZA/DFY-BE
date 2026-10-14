@@ -65,12 +65,13 @@ public class TasksController : ControllerBase
             return Ok(new ApiResponse<object> { Success = false, Message = errorMessage });
         }
 
-        if (request.Budget < 50)
+        var budget = decimal.Round(request.Budget, 2, MidpointRounding.AwayFromZero);
+        if (budget < 50)
             return Ok(new ApiResponse<object> { Success = false, Message = "validation failed: minimum budget is R50" });
 
         var taskId = GenerateTaskId();
-        var commission = _escrowService.CalculateCommission(request.Budget);
-        var payout = request.Budget - commission;
+        var commission = _escrowService.CalculateCommission(budget);
+        var payout = decimal.Round(budget - commission, 2, MidpointRounding.AwayFromZero);
 
         var task = new Models.Task
         {
@@ -80,7 +81,7 @@ public class TasksController : ControllerBase
             Category = request.Category,
             Area = request.Area,
             DateNeeded = DateTime.SpecifyKind(request.DateNeeded, DateTimeKind.Utc),
-            Budget = request.Budget,
+            Budget = budget,
             Notes = request.Notes,
             Priority = request.Priority,
             CreatedByUserId = userId.Value,
@@ -102,7 +103,7 @@ public class TasksController : ControllerBase
         await _notificationService.NotifyAdminsAsync(
             "payment_pending",
             "New Task Awaiting Payment",
-            $"{user.FirstName} {user.LastName} created task {taskId} — R{request.Budget:F0} ({request.Category})",
+            $"{user.FirstName} {user.LastName} created task {taskId} — R{budget:F2} ({request.Category})",
             task.Id);
 
         task.PaymentReference = GeneratePaymentReference(task.TaskId);
@@ -728,10 +729,10 @@ public class TasksController : ControllerBase
         }
         if (request.Budget.HasValue && request.Budget.Value >= 50)
         {
-            task.Budget = request.Budget.Value;
+            task.Budget = decimal.Round(request.Budget.Value, 2, MidpointRounding.AwayFromZero);
             var commission = _escrowService.CalculateCommission(task.Budget);
             task.CommissionAmount = commission;
-            task.PayoutAmount = task.Budget - commission;
+            task.PayoutAmount = decimal.Round(task.Budget - commission, 2, MidpointRounding.AwayFromZero);
         }
         task.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
