@@ -195,14 +195,15 @@ public class AdminController : ControllerBase
         var providerReferences = new HashSet<string>(references, StringComparer.Ordinal);
         var missingLocalAttempts = await _context.PaymentAttempts.AsNoTracking()
             .Where(p => p.Provider == "Paystack" &&
-                p.CreatedAt >= start.UtcDateTime &&
-                p.CreatedAt <= end.UtcDateTime &&
-                (p.Status == "Completed" || p.Status == "Success" || p.Status == "Paid"))
-            .Select(p => new { p.Reference, p.Amount, p.Status, p.CreatedAt, p.TaskId })
+                p.CompletedAt.HasValue &&
+                p.CompletedAt.Value >= start.UtcDateTime &&
+                p.CompletedAt.Value <= end.UtcDateTime &&
+                p.Status == "Completed")
+            .Select(p => new { p.Reference, p.Amount, p.Status, p.CompletedAt, p.TaskId })
             .ToListAsync(cancellationToken);
-        var localSuccessfulAttemptsMissingFromSettlements = missingLocalAttempts
+        var localSuccessfulAttemptsNotMatchedByReturnedSettlementReference = missingLocalAttempts
             .Where(p => !providerReferences.Contains(p.Reference))
-            .Select(p => new { p.Reference, p.Amount, p.Status, p.CreatedAt, p.TaskId })
+            .Select(p => new { p.Reference, p.Amount, p.Status, p.CompletedAt, p.TaskId })
             .ToList();
 
         var settlementSummary = providerResult.Settlements.Select(s => new
@@ -247,10 +248,10 @@ public class AdminController : ControllerBase
                     }),
                 transactionCount = transactionRows.Count,
                 transactionFindings = transactionRows.Count(t => !t.isConsistent),
-                localSuccessfulAttemptsMissingFromSettlements,
+                localSuccessfulAttemptsNotMatchedByReturnedSettlementReference,
                 settlements = settlementSummary,
                 transactions = transactionRows,
-                note = "Settlement batches represent funds Paystack sends to the merchant settlement account. This report does not reconcile runner transfer fees, chargebacks outside the returned date window, bank-statement credits, or legal escrow/safeguarding status. It never changes financial state."
+                note = "Settlement batches represent funds Paystack sends to the merchant settlement account. Unmatched local successful attempts are candidates for review, not confirmed missing settlements, because transaction completion and settlement dates can differ. This report does not reconcile runner transfer fees, chargebacks outside the returned date window, bank-statement credits, or legal escrow/safeguarding status. It never changes financial state."
             }
         });
     }
