@@ -10,7 +10,8 @@ namespace DoForYou.API.Services;
 public sealed class PaystackProvider(
     IHttpClientFactory httpClientFactory,
     IConfiguration configuration,
-    ILogger<PaystackProvider> logger)
+    ILogger<PaystackProvider> logger,
+    IHttpContextAccessor httpContextAccessor)
     : IPaymentProvider, IPayoutProvider, IBankProvider
 {
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
@@ -60,13 +61,21 @@ public sealed class PaystackProvider(
             ? $"dfy-pay-{task.TaskId}".ToLowerInvariant()
             : NormalizePaymentReference(task.PaymentReference);
 
+        var isMobileClient = string.Equals(
+            httpContextAccessor.HttpContext?.Request.Headers["X-DFY-Client"].ToString(),
+            "mobile",
+            StringComparison.OrdinalIgnoreCase);
+
+        var callbackUrl = $"{BackendUrl}/api/v1/payment/return?taskId={Uri.EscapeDataString(task.TaskId)}" +
+            (isMobileClient ? "&client=mobile" : string.Empty);
+
         var payload = new
         {
             email = customer.Email,
             amount = checked((long)Math.Round(task.Budget * 100m)),
             currency = "ZAR",
             reference,
-            callback_url = $"{BackendUrl}/api/v1/payment/return?taskId={Uri.EscapeDataString(task.TaskId)}",
+            callback_url = callbackUrl,
             metadata = new
             {
                 taskId = task.TaskId,
