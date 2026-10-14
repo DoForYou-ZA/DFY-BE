@@ -145,3 +145,28 @@ A release owner should attach evidence for all of the following before approving
 - [ ] Legal/compliance sign-off on the intended custody/settlement model.
 
 **Current conclusion:** this audit is a release plan and source inspection, not proof of live-account configuration or successful real-money testing. Keep live payouts disabled for tests and do not declare production readiness until the P0 evidence is collected and reviewed.
+
+
+## Cross-repository client audit
+
+The payment-provider and financial rules remain in DFY-BE. The clients should display backend values and status only; neither client should calculate authoritative commission or infer payment success from a browser return.
+
+### DFY-FE
+
+- `src/pages/PaymentPages.tsx` explicitly tells users that a checkout return is not proof of payment and that DFY is confirming with Paystack.
+- `src/pages/user/BankAccounts.tsx` describes direct Paystack runner payouts, verification, default payout account selection, and keeping existing payout destinations unchanged.
+- `src/pages/tasks/BrowseErrands.tsx` uses the backend's `payoutAmount` field as the source of truth for runner earnings, including browse cards, detail modal and claim confirmation. It does not derive the payout from the creator budget.
+- `src/pages/tasks/MyActiveTasks.tsx` displays `payoutAmount` for runner tasks.
+- `e2e/paystack-manual-checkout.spec.ts` contains a deliberately gated manual Test Mode checkout-to-`RunnerPaid` test. It requires explicit Test Mode confirmation and verified runner bank details.
+
+### dfy-mobile
+
+- `README.md` states that DFY-BE owns payment verification, escrow, disputes, bank verification and payout rules; checkout dismissal is not payment confirmation; queued payouts must not be displayed as paid.
+- `src/screens/tasks/BrowseErrandsScreen.tsx` uses backend `payoutAmount` for runner-facing task cards and details.
+- `src/screens/tasks/MyActiveTasksScreen.tsx` displays the backend `payoutAmount`.
+- `src/screens/user/BankAccountsScreen.tsx` supports verification, setting a default payout account, and removing accounts while retaining the backend's payout-in-progress safeguards.
+- `src/api/index.ts` calls backend payment history, payment URL and bank-account APIs; it does not embed Paystack secret keys or own payment logic.
+
+### Client conclusion
+
+The inspected FE and mobile task-card paths already use the backend's runner payout field rather than recomputing 85% in the client. This is correct. Keep regression tests for both clients, especially low-budget tasks affected by DFY's minimum R5 commission. The remaining financial risk is not the card calculation itself; it is verifying persisted backend amounts, actual provider settlement/fees, and payout/refund outcomes against Paystack records.
