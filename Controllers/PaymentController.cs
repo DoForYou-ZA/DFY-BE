@@ -445,8 +445,20 @@ public class PaymentController : ControllerBase
 
     [HttpGet("return")]
     [AllowAnonymous]
-    public IActionResult PaymentReturn([FromQuery] string? taskId = null)
+    public IActionResult PaymentReturn(
+        [FromQuery] string? taskId = null,
+        [FromQuery] string? client = null)
     {
+        // The app return is navigation only. Payment status remains authoritative
+        // in the signed Paystack webhook and authenticated task APIs.
+        if (string.Equals(client, "mobile", StringComparison.OrdinalIgnoreCase))
+        {
+            var appReturn = string.IsNullOrWhiteSpace(taskId)
+                ? "doforyou://payment-return"
+                : $"doforyou://payment-return?taskId={Uri.EscapeDataString(taskId)}";
+            return Redirect(appReturn);
+        }
+
         var frontendUrl = (
             Environment.GetEnvironmentVariable("FRONTEND_URL")
             ?? _configuration["FrontendUrl"]
