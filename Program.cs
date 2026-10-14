@@ -247,6 +247,7 @@ builder.Configuration["Paystack:BaseUrl"] =
     ?? builder.Configuration["Paystack:BaseUrl"]
     ?? "https://api.paystack.co";
 
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient("Paystack");
 builder.Services.AddSingleton<PaystackProvider>();
 builder.Services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<PaystackProvider>());
