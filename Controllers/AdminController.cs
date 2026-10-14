@@ -143,6 +143,10 @@ public class AdminController : ControllerBase
                 matchingAttempts.Any(a => a.TaskId == p.TaskId && a.Reference == transaction.Reference)).ToArray();
             var findings = new List<string>();
 
+            if (!string.Equals(transaction.Currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+                findings.Add("Transaction currency is not ZAR; do not compare it with DFY's ZAR task ledger.");
+            if (!string.Equals(transaction.Status, "success", StringComparison.OrdinalIgnoreCase))
+                findings.Add("Settlement transaction status is not success; review provider status.");
             if (matchingAttempts.Length == 0)
                 findings.Add("Paystack settlement transaction has no matching DFY payment attempt.");
             if (matchingAttempts.Length > 1)
@@ -151,6 +155,11 @@ public class AdminController : ControllerBase
                 findings.Add("Paystack transaction amount differs from the DFY payment-attempt amount.");
             if (matchingTasks.Any(t => t.Budget != transaction.Amount))
                 findings.Add("Paystack transaction amount differs from the persisted task budget.");
+            if (matchingTasks.Any(t => t.CommissionAmount != _escrowService.CalculateCommission(t.Budget)))
+                findings.Add("Persisted DFY commission differs from the backend commission calculation.");
+            if (matchingTasks.Any(t => t.PayoutAmount != decimal.Round(
+                    t.Budget - _escrowService.CalculateCommission(t.Budget), 2, MidpointRounding.AwayFromZero)))
+                findings.Add("Persisted runner payout differs from task budget minus backend commission.");
             if (matchingPayments.Any(p => p.Amount != transaction.Amount))
                 findings.Add("Paystack transaction amount differs from a persisted DFY payment record.");
 
@@ -165,6 +174,16 @@ public class AdminController : ControllerBase
                 providerFees = transaction.Fees,
                 transaction.PaidAt,
                 matchedTaskIds = matchingTasks.Select(t => t.TaskId),
+                taskFinancials = matchingTasks.Select(t => new
+                {
+                    t.TaskId,
+                    t.Budget,
+                    t.CommissionAmount,
+                    expectedCommission = _escrowService.CalculateCommission(t.Budget),
+                    t.PayoutAmount,
+                    expectedRunnerAmount = decimal.Round(
+                        t.Budget - _escrowService.CalculateCommission(t.Budget), 2, MidpointRounding.AwayFromZero)
+                }),
                 matchingAttemptCount = matchingAttempts.Length,
                 localAttemptAmounts = matchingAttempts.Select(a => a.Amount),
                 localPaymentAmounts = matchingPayments.Select(p => p.Amount),
@@ -216,10 +235,16 @@ public class AdminController : ControllerBase
                 reconciliationComplete = providerResult.IsComplete,
                 providerError = providerResult.Error,
                 settlementCount = settlementSummary.Count,
-                settlementGrossProcessed = settlementSummary.Sum(s => s.grossProcessed),
-                settlementAmount = settlementSummary.Sum(s => s.settlementAmount),
-                settlementEffectiveAmount = settlementSummary.Sum(s => s.effectiveAmount),
-                settlementFees = settlementSummary.Sum(s => s.providerFees),
+                settlementTotalsByCurrency = settlementSummary
+                    .GroupBy(s => s.Currency)
+                    .Select(group => new
+                    {
+                        currency = group.Key,
+                        grossProcessed = group.Sum(s => s.grossProcessed),
+                        settlementAmount = group.Sum(s => s.settlementAmount),
+                        effectiveAmount = group.Sum(s => s.effectiveAmount),
+                        providerFees = group.Sum(s => s.providerFees)
+                    }),
                 transactionCount = transactionRows.Count,
                 transactionFindings = transactionRows.Count(t => !t.isConsistent),
                 localSuccessfulAttemptsMissingFromSettlements,
