@@ -11,10 +11,10 @@ This report supersedes the stale status in the 2026-10-09 report and should be u
 | Area | Current state | Evidence |
 |---|---|---|
 | DFY-BE | Task search, currency-precision commission/payout calculation, mobile Paystack return, and marketplace Paystack audit merged | Main includes commits `3cf34d3`, `1489791`, `c980eff`, and audit documentation merge `ed25356`; backend CI passed on runtime commit `c980eff` |
-| DFY-FE | Exact backend payout display and task-description validation parity merged | Main commit `f09d1fc`; CI run [38581076848](https://github.com/DoForYou-ZA/DFY-FE/actions/runs/38581076848) was still running at report time |
+| DFY-FE | Exact backend payout display and task-description validation parity merged and deployed | Main commit `f09d1fc`; Render deployment succeeded; CI run [38581076848](https://github.com/DoForYou-ZA/DFY-FE/actions/runs/38581076848) was still running at last check |
 | dfy-mobile | Browse/dashboard/idle-session changes, backend payout display, task-creation parity, auth styling, and bank-account layout fixes merged | Main commit `c055cb0`; [Android release workflow](https://github.com/DoForYou-ZA/dfy-mobile/actions/runs/38579429541) passed |
-| FE staging | Newest confirmed live deploy before the latest task-description merge was commit `1069dc5`; the `f09d1fc` merge triggered a new main workflow and should be checked for deployment completion | [Render service](https://dashboard.render.com/web/srv-dab4fic9v7es73c0id9g) · [staging site](https://dfy-fe-staging.onrender.com) |
-| BE staging | Commit `c980eff` is live; Render reported a successful build and deploy | [Render service](https://dashboard.render.com/web/srv-dab4b6id0e5s73da8uk0) · [staging API](https://dfy-be-staging.onrender.com/api/v1) |
+| FE staging | Commit `f09d1fc` is live; Render reports the deploy completed successfully at 14:31 UTC | [Render service](https://dashboard.render.com/web/srv-dab4fic9v7es73c0id9g) · [staging site](https://dfy-fe-staging.onrender.com) |
+| BE staging | Runtime code commit `c980eff` was deployed; latest documentation-only main commit `ed25356` is also live. Both deploys succeeded | [Render service](https://dashboard.render.com/web/srv-dab4b6id0e5s73da8uk0) · [staging API](https://dfy-be-staging.onrender.com/api/v1) |
 | Android artifact | `dfy-mobile-android-release` artifact was created successfully for main SHA `c055cb0`, size approximately 20.6 MB, not expired when checked | [Actions run and artifact download](https://github.com/DoForYou-ZA/dfy-mobile/actions/runs/38579429541) |
 
 ## Changes merged in this integration pass
@@ -51,7 +51,7 @@ Client apps must never calculate commission or treat browser dismissal/client-si
 
 ## Staging evidence and limitations
 
-- Render reports the BE deployment for `c980eff` as live and successful, and the FE deployment for `1069dc5` as live and successful.
+- Render reports the BE documentation commit `ed25356` and FE task-validation commit `f09d1fc` as live after successful deploys.
 - FE staging logs show successful HTTP 200 responses for the homepage and static assets.
 - BE staging logs show `DFY_E2E_TEST_MODE` enabled and the payout processor explicitly skipping Paystack payout processing. This is the intended safety guard for E2E tests; **no real payout was tested by those logs**.
 - The latest Android CI run passed typecheck/bundle and Android release build. This is a CI artifact, not proof of installation or a full real-device workflow.
@@ -72,7 +72,7 @@ The repository contains checkout initialization, transaction verification, webho
 
 ## P1 — release validation still required
 
-- [ ] Confirm the FE main workflow for `f09d1fc` finishes green and the Render FE deploy for that commit is live.
+- [ ] Confirm the FE main workflow for `f09d1fc` finishes green (the Render deploy is already live).
 - [ ] Download/install the Android artifact on a device or emulator; verify login, task browse/search, create-task validation, checkout return, runner accept/complete, creator confirm/dispute, bank setup, and payout status.
 - [ ] Confirm the release build uses the intended production API configuration, not staging endpoints.
 - [ ] Run controlled Paystack Test Mode end-to-end checks and capture evidence for payment verification, webhook idempotency, refunds, disputes, failed transfers/retries, and reconciliation.
