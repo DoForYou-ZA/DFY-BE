@@ -65,10 +65,10 @@ public class TasksController : ControllerBase
             return Ok(new ApiResponse<object> { Success = false, Message = errorMessage });
         }
 
-        var budget = decimal.Round(request.Budget, 2, MidpointRounding.AwayFromZero);
-        if (budget < 50)
+        if (request.Budget < 50)
             return Ok(new ApiResponse<object> { Success = false, Message = "validation failed: minimum budget is R50" });
 
+        var budget = decimal.Round(request.Budget, 2, MidpointRounding.AwayFromZero);
         var taskId = GenerateTaskId();
         var commission = _escrowService.CalculateCommission(budget);
         var payout = decimal.Round(budget - commission, 2, MidpointRounding.AwayFromZero);
