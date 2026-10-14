@@ -156,5 +156,5 @@ public class EscrowService : IEscrowService
 
     public System.Threading.Tasks.Task<int> AutoReleaseExpiredEscrowsAsync() => System.Threading.Tasks.Task.FromResult(0);
 
-    public decimal CalculateCommission(decimal amount) => Math.Max(amount * 0.15m, 5.00m);
+    public decimal CalculateCommission(decimal amount) => Math.Max(decimal.Round(amount * 0.15m, 2, MidpointRounding.AwayFromZero), 5.00m);
 }
