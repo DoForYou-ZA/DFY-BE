@@ -247,6 +247,143 @@ public sealed class PaystackProvider(
         }
     }
 
+    public async Task<PaystackSettlementReadResult> GetSettlementsAsync(
+        DateTimeOffset from,
+        DateTimeOffset to,
+        int maxSettlements = 25,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(SecretKey))
+            return new(false, false, Array.Empty<PaystackSettlementRecord>(),
+                Array.Empty<PaystackSettlementTransaction>(), "Paystack secret key is not configured.");
+
+        if (to < from)
+            return new(false, false, Array.Empty<PaystackSettlementRecord>(),
+                Array.Empty<PaystackSettlementTransaction>(), "The settlement end date must be on or after the start date.");
+
+        maxSettlements = Math.Clamp(maxSettlements, 1, 50);
+        var settlements = new List<PaystackSettlementRecord>();
+        var transactions = new List<PaystackSettlementTransaction>();
+        var complete = true;
+
+        try
+        {
+            var fromText = Uri.EscapeDataString(from.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
+            var toText = Uri.EscapeDataString(to.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture));
+            using var settlementsRequest = Request(HttpMethod.Get,
+                $"settlement?perPage={maxSettlements}&page=1&from={fromText}&to={toText}");
+            using var settlementsResponse = await Client.SendAsync(settlementsRequest, cancellationToken);
+            var settlementsBody = await settlementsResponse.Content.ReadAsStringAsync(cancellationToken);
+            using var settlementsDocument = JsonDocument.Parse(settlementsBody);
+            var settlementsRoot = settlementsDocument.RootElement;
+
+            if (!settlementsResponse.IsSuccessStatusCode || !GetBool(settlementsRoot, "status"))
+            {
+                return new(false, false, settlements, transactions,
+                    GetString(settlementsRoot, "message") ?? "Paystack settlements could not be retrieved.");
+            }
+
+            if (!settlementsRoot.TryGetProperty("data", out var settlementData) ||
+                settlementData.ValueKind != JsonValueKind.Array)
+                return new(false, false, settlements, transactions, "Paystack returned an invalid settlements response.");
+
+            foreach (var item in settlementData.EnumerateArray())
+            {
+                var settlementId = GetString(item, "id");
+                if (string.IsNullOrWhiteSpace(settlementId))
+                    continue;
+
+                DateTimeOffset? settlementDate = DateTimeOffset.TryParse(
+                    GetString(item, "settlement_date"), CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal, out var parsedDate) ? parsedDate : null;
+
+                settlements.Add(new PaystackSettlementRecord(
+                    settlementId,
+                    GetString(item, "status") ?? "unknown",
+                    GetString(item, "currency") ?? string.Empty,
+                    (GetDecimal(item, "total_amount") ?? 0m) / 100m,
+                    (GetDecimal(item, "effective_amount") ?? 0m) / 100m,
+                    (GetDecimal(item, "total_fees") ?? 0m) / 100m,
+                    (GetDecimal(item, "total_processed") ?? 0m) / 100m,
+                    settlementDate,
+                    GetString(item, "domain") ?? "unknown"));
+            }
+
+            // Keep this endpoint bounded. If the provider returns more settlements than
+            // requested, the caller must rerun a narrower date window rather than assume completeness.
+            if (settlementsRoot.TryGetProperty("meta", out var settlementMeta) &&
+                GetDecimal(settlementMeta, "pageCount") is { } settlementPageCount &&
+                settlementPageCount > 1)
+                complete = false;
+
+            foreach (var settlement in settlements)
+            {
+                var page = 1;
+                var pageCount = 1;
+                do
+                {
+                    using var transactionRequest = Request(HttpMethod.Get,
+                        $"settlement/{Uri.EscapeDataString(settlement.Id)}/transactions?perPage=100&page={page}");
+                    using var transactionResponse = await Client.SendAsync(transactionRequest, cancellationToken);
+                    var transactionBody = await transactionResponse.Content.ReadAsStringAsync(cancellationToken);
+                    using var transactionDocument = JsonDocument.Parse(transactionBody);
+                    var transactionRoot = transactionDocument.RootElement;
+
+                    if (!transactionResponse.IsSuccessStatusCode || !GetBool(transactionRoot, "status"))
+                    {
+                        return new(false, false, settlements, transactions,
+                            GetString(transactionRoot, "message") ?? $"Transactions for settlement {settlement.Id} could not be retrieved.");
+                    }
+
+                    if (!transactionRoot.TryGetProperty("data", out var transactionData) ||
+                        transactionData.ValueKind != JsonValueKind.Array)
+                        return new(false, false, settlements, transactions,
+                            $"Paystack returned an invalid transaction list for settlement {settlement.Id}.");
+
+                    foreach (var item in transactionData.EnumerateArray())
+                    {
+                        DateTimeOffset? paidAt = DateTimeOffset.TryParse(
+                            GetString(item, "paid_at"), CultureInfo.InvariantCulture,
+                            DateTimeStyles.AssumeUniversal, out var parsedPaidAt) ? parsedPaidAt : null;
+
+                        transactions.Add(new PaystackSettlementTransaction(
+                            settlement.Id,
+                            GetString(item, "reference") ?? string.Empty,
+                            GetString(item, "status") ?? "unknown",
+                            GetString(item, "currency") ?? settlement.Currency,
+                            (GetDecimal(item, "amount") ?? 0m) / 100m,
+                            GetDecimal(item, "fees") is { } feesMinor ? feesMinor / 100m : null,
+                            GetString(item, "id"),
+                            paidAt));
+                    }
+
+                    if (transactionRoot.TryGetProperty("meta", out var transactionMeta) &&
+                        GetDecimal(transactionMeta, "pageCount") is { } transactionPageCount)
+                        pageCount = Math.Max(1, (int)transactionPageCount);
+
+                    page++;
+                    if (page <= pageCount && page > 20)
+                    {
+                        complete = false;
+                        break;
+                    }
+                } while (page <= pageCount);
+            }
+
+            return new(true, complete, settlements, transactions,
+                complete ? null : "Results were capped by provider pagination limits. Rerun with a narrower date window for a complete reconciliation.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Paystack settlement reconciliation request failed.");
+            return new(false, false, settlements, transactions, "Unable to retrieve Paystack settlement records.");
+        }
+    }
+
     public bool VerifyWebhookSignature(string rawBody, string? signature)
     {
         if (string.IsNullOrWhiteSpace(SecretKey) || string.IsNullOrWhiteSpace(signature))
