@@ -12,7 +12,7 @@ public sealed class PaystackProvider(
     IConfiguration configuration,
     ILogger<PaystackProvider> logger,
     IHttpContextAccessor httpContextAccessor)
-    : IPaymentProvider, IPayoutProvider, IBankProvider
+    : IPaymentProvider, IPayoutProvider, IBankProvider, IPaystackSettlementProvider
 {
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web)
     {
