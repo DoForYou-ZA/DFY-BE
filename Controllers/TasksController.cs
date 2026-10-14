@@ -204,8 +204,24 @@ public class TasksController : ControllerBase
             .Include(t => t.CreatedByUser)
             .Where(t => !t.IsDeleted && t.PaymentStatus == "EscrowHeld" && t.TaskStatus == "Posted");
 
-        if (!string.IsNullOrEmpty(search)) query = query.Where(t => t.TaskDescription.Contains(search) || t.Area.Contains(search));
-        if (!string.IsNullOrEmpty(category)) query = query.Where(t => t.Category == category);
+        // Search across the fields users can see on browse cards, not only the
+        // description and area. Normalise whitespace/case before translating to SQL.
+        var normalizedSearch = search?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(normalizedSearch))
+        {
+            query = query.Where(t =>
+                t.TaskName.ToLower().Contains(normalizedSearch) ||
+                t.TaskDescription.ToLower().Contains(normalizedSearch) ||
+                t.Area.ToLower().Contains(normalizedSearch) ||
+                t.Category.ToLower().Contains(normalizedSearch) ||
+                (t.Notes != null && t.Notes.ToLower().Contains(normalizedSearch)));
+        }
+
+        // Category labels come from the API's filter-options endpoint. Compare
+        // case-insensitively so casing differences don't silently return zero tasks.
+        var normalizedCategory = category?.Trim().ToLowerInvariant();
+        if (!string.IsNullOrWhiteSpace(normalizedCategory))
+            query = query.Where(t => t.Category.ToLower() == normalizedCategory);
 
         var totalCount = await query.CountAsync();
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
