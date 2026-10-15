@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, main, 'chore/bootstrap-openapi-snapshot']
     paths-ignore:
       - 'docs/openapi.json'
       - 'docs/openapi.d.ts'
@@ -49,8 +49,19 @@ jobs:
         run: npx --yes openapi-typescript@7.6.1 docs/openapi.json -o docs/openapi.d.ts
 
       - name: Commit generated contract snapshot on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.head_ref == 'chore/bootstrap-openapi-snapshot')
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || 'main' }}
         run: |
+          # Preserve generated files while switching from GitHub's temporary PR merge ref
+          # to the actual branch that should receive the generated snapshot.
+          cp docs/openapi.json /tmp/dfy-openapi.json
+          cp docs/openapi.d.ts /tmp/dfy-openapi.d.ts
+          git fetch origin "$TARGET_BRANCH"
+          git checkout "$TARGET_BRANCH"
+          mkdir -p docs
+          cp /tmp/dfy-openapi.json docs/openapi.json
+          cp /tmp/dfy-openapi.d.ts docs/openapi.d.ts
           git add docs/openapi.json docs/openapi.d.ts
           if git diff --cached --quiet; then
             echo "Canonical API contract is already up to date."
@@ -58,7 +69,7 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "chore(api): refresh generated OpenAPI contract"
-            git push
+            git push origin "$TARGET_BRANCH"
           fi
 
       - name: Upload canonical OpenAPI artifact
