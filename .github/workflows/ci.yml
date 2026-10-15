@@ -26,3 +26,23 @@ jobs:
 
       - name: Test
         run: dotnet test DoForYou.Tests/DoForYou.Tests.csproj --no-restore --configuration Release --verbosity normal
+
+      - name: Export canonical OpenAPI contract
+        env:
+          ASPNETCORE_ENVIRONMENT: Development
+          JWT_KEY: dfy-openapi-export-only-key-32-characters-minimum
+          ConnectionStrings__DefaultConnection: Host=localhost;Database=dfy_contract_export;Username=postgres;Password=postgres
+        run: |
+          dotnet tool install Swashbuckle.AspNetCore.Cli --version 6.9.0 --tool-path .tools
+          mkdir -p docs
+          .tools/dotnet-swagger tofile --output docs/openapi.json bin/Release/net9.0/DoForYou.API.dll v1
+          jq -e '.openapi and .info.title == "DoForYou API" and .paths and .components' docs/openapi.json >/dev/null
+          test -s docs/openapi.json
+
+      - name: Upload canonical OpenAPI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dfy-openapi-v1
+          path: docs/openapi.json
+          if-no-files-found: error
+          retention-days: 30
