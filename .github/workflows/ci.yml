@@ -16,7 +16,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
@@ -92,7 +92,7 @@ jobs:
           diff -u /tmp/committed-openapi.d.ts docs/openapi.d.ts
 
       - name: Upload canonical OpenAPI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: dfy-openapi-v1
           path: |
