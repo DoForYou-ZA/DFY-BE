@@ -5427,6 +5427,7 @@ export interface components {
             adminNotes?: string | null;
         };
         UpdateTaskRequest: {
+            taskName?: string | null;
             taskDescription?: string | null;
             category?: string | null;
             area?: string | null;

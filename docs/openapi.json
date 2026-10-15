@@ -6527,6 +6527,12 @@
       "UpdateTaskRequest": {
         "type": "object",
         "properties": {
+          "taskName": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string",
+            "nullable": true
+          },
           "taskDescription": {
             "type": "string",
             "nullable": true
