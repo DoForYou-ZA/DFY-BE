@@ -3,12 +3,17 @@ name: CI
 on:
   push:
     branches: [dev, main]
+    paths-ignore:
+      - 'docs/openapi.json'
+      - 'docs/openapi.d.ts'
   pull_request:
     branches: [dev, main]
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,6 +47,19 @@ jobs:
 
       - name: Generate TypeScript contract declarations
         run: npx --yes openapi-typescript@7.6.1 docs/openapi.json -o docs/openapi.d.ts
+
+      - name: Commit generated contract snapshot on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git add docs/openapi.json docs/openapi.d.ts
+          if git diff --cached --quiet; then
+            echo "Canonical API contract is already up to date."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "chore(api): refresh generated OpenAPI contract"
+            git push
+          fi
 
       - name: Upload canonical OpenAPI artifact
         uses: actions/upload-artifact@v4
