@@ -35,6 +35,11 @@ jobs:
       - name: Test
         run: dotnet test DoForYou.Tests/DoForYou.Tests.csproj --no-restore --configuration Release --verbosity normal
 
+      - name: Preserve committed API contract snapshot
+        run: |
+          if [ -f docs/openapi.json ]; then cp docs/openapi.json /tmp/committed-openapi.json; fi
+          if [ -f docs/openapi.d.ts ]; then cp docs/openapi.d.ts /tmp/committed-openapi.d.ts; fi
+
       - name: Export canonical OpenAPI contract
         env:
           ASPNETCORE_ENVIRONMENT: Development
@@ -50,6 +55,14 @@ jobs:
 
       - name: Generate TypeScript contract declarations
         run: npx --yes openapi-typescript@7.6.1 docs/openapi.json -o docs/openapi.d.ts
+
+      - name: Verify committed API contract snapshot on pull requests
+        if: github.event_name == 'pull_request'
+        run: |
+          test -s /tmp/committed-openapi.json
+          test -s /tmp/committed-openapi.d.ts
+          diff -u /tmp/committed-openapi.json docs/openapi.json
+          diff -u /tmp/committed-openapi.d.ts docs/openapi.d.ts
 
       - name: Commit generated contract snapshot on main
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
