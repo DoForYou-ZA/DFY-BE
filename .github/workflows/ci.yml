@@ -30,6 +30,7 @@ jobs:
       - name: Export canonical OpenAPI contract
         env:
           ASPNETCORE_ENVIRONMENT: Development
+          DFY_OPENAPI_EXPORT: 'true'
           JWT_KEY: dfy-openapi-export-only-key-32-characters-minimum
           ConnectionStrings__DefaultConnection: Host=localhost;Database=dfy_contract_export;Username=postgres;Password=postgres
         run: |
