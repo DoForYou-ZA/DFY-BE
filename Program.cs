@@ -366,4 +366,7 @@ if (app.Environment.IsDevelopment())
 }
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? (app.Environment.IsDevelopment() ? "5001" : "8080");
-app.Run($"http://0.0.0.0:{port}");
+if (string.Equals(Environment.GetEnvironmentVariable("DFY_OPENAPI_EXPORT"), "true", StringComparison.OrdinalIgnoreCase))
+    app.Run();
+else
+    app.Run($"http://0.0.0.0:{port}");
