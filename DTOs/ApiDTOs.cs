@@ -111,7 +111,9 @@ public class CreateTaskRequest : IValidatableObject
 
 public class UpdateTaskRequest
 {
-    public string? TaskDescription { get; set; }
+    [StringLength(60, MinimumLength = 1)]
+    public string? TaskName { get; set; }
+    public string? TaskDescription { get; set;}
     public string? Category { get; set; }
     public string? Area { get; set; }
     public DateTime? DateNeeded { get; set; }
