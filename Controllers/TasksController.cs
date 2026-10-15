@@ -731,6 +731,7 @@ public class TasksController : ControllerBase
         if (task == null) return Ok(new ApiResponse<object> { Success = false, Message = "Task not found" });
         if (task.TaskStatus != "PendingPayment") return Ok(new ApiResponse<object> { Success = false, Message = "Only pending payment tasks can be edited" });
 
+        if (!string.IsNullOrWhiteSpace(request.TaskName)) task.TaskName = request.TaskName.Trim();
         if (!string.IsNullOrWhiteSpace(request.TaskDescription)) task.TaskDescription = request.TaskDescription.Trim();
         if (!string.IsNullOrWhiteSpace(request.Category)) task.Category = request.Category.Trim();
         if (!string.IsNullOrWhiteSpace(request.Area)) task.Area = request.Area.Trim();
