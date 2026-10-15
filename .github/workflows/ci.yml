@@ -26,6 +26,9 @@ jobs:
       - name: Restore
         run: dotnet restore DoForYou.API.csproj
 
+      - name: Restore test project
+        run: dotnet restore DoForYou.Tests/DoForYou.Tests.csproj
+
       - name: Build API
         run: dotnet build DoForYou.API.csproj --no-restore --configuration Release
 
