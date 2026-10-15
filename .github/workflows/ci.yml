@@ -35,7 +35,7 @@ jobs:
         run: |
           dotnet tool install Swashbuckle.AspNetCore.Cli --version 6.9.0 --tool-path .tools
           mkdir -p docs
-          .tools/dotnet-swagger tofile --output docs/openapi.json bin/Release/net9.0/DoForYou.API.dll v1
+          ./.tools/swagger tofile --output docs/openapi.json bin/Release/net9.0/DoForYou.API.dll v1
           jq -e '.openapi and .info.title == "DoForYou API" and .paths and .components' docs/openapi.json >/dev/null
           test -s docs/openapi.json
 
