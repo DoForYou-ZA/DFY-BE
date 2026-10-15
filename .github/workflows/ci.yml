@@ -40,10 +40,15 @@ jobs:
           jq -e '.openapi and .info.title == "DoForYou API" and .paths and .components' docs/openapi.json >/dev/null
           test -s docs/openapi.json
 
+      - name: Generate TypeScript contract declarations
+        run: npx --yes openapi-typescript@7.6.1 docs/openapi.json -o docs/openapi.d.ts
+
       - name: Upload canonical OpenAPI artifact
         uses: actions/upload-artifact@v4
         with:
           name: dfy-openapi-v1
-          path: docs/openapi.json
+          path: |
+            docs/openapi.json
+            docs/openapi.d.ts
           if-no-files-found: error
           retention-days: 30
