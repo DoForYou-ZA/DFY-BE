@@ -137,7 +137,17 @@ if (!string.IsNullOrWhiteSpace(configuredConnectionString) &&
 // Add services to the container.
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    // Stable document name used by CI to export the canonical API contract.
+    // Swagger remains served only in Development below; this does not expose it in production.
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "DoForYou API",
+        Version = "v1",
+        Description = "Canonical HTTP API contract for DFY-FE and dfy-mobile. Business rules remain authoritative in DFY-BE."
+    });
+});
 
 // Database
 builder.Services.AddDbContext<AppDbContext>(options =>
@@ -356,4 +366,7 @@ if (app.Environment.IsDevelopment())
 }
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? (app.Environment.IsDevelopment() ? "5001" : "8080");
-app.Run($"http://0.0.0.0:{port}");
+if (string.Equals(Environment.GetEnvironmentVariable("DFY_OPENAPI_EXPORT"), "true", StringComparison.OrdinalIgnoreCase))
+    app.Run();
+else
+    app.Run($"http://0.0.0.0:{port}");
