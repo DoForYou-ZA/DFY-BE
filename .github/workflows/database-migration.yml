@@ -35,4 +35,6 @@ jobs:
           dotnet build DoForYou.API.csproj --configuration Release
           dotnet ef migrations list --project DoForYou.API.csproj --configuration Release | tee migrations.txt
           grep -q "20261015100000_RepairProductionPaystackSchema" migrations.txt || { echo "Expected production schema repair migration was not discovered by EF Core"; exit 1; }
+          grep -q "20261015110000_RepairProductionTaskDeletedAt" migrations.txt || { echo "Expected DeletedAt schema repair migration was not discovered by EF Core"; exit 1; }
+          grep -q "20261015120000_RepairProductionTaskIsDeleted" migrations.txt || { echo "Expected IsDeleted schema repair migration was not discovered by EF Core"; exit 1; }
           dotnet ef database update --project DoForYou.API.csproj --configuration Release
