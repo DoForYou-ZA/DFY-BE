@@ -138,7 +138,7 @@ public class PaystackProviderBankVerificationTests
         var logger = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.None))
             .CreateLogger<PaystackProvider>();
 
-        return new PaystackProvider(factory, configuration, logger);
+        return new PaystackProvider(factory, configuration, logger, new Microsoft.AspNetCore.Http.HttpContextAccessor());
     }
 
     private static User CreateUser() => new()
