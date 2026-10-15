@@ -56,26 +56,40 @@ jobs:
       - name: Generate TypeScript contract declarations
         run: npx --yes openapi-typescript@7.6.1 docs/openapi.json -o docs/openapi.d.ts
 
-      - name: Verify committed API contract snapshot on pull requests
-        if: github.event_name == 'pull_request'
+      - name: Sync generated API contract to target branch
+        id: sync_contract
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          TARGET_BRANCH: ${{ github.head_ref || 'main' }}
         run: |
-          test -s /tmp/committed-openapi.json
-          test -s /tmp/committed-openapi.d.ts
-          diff -u /tmp/committed-openapi.json docs/openapi.json
-          diff -u /tmp/committed-openapi.d.ts docs/openapi.d.ts
-
-      - name: Commit generated contract snapshot on main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
+          # Save generated outputs, then switch to the real target branch rather than
+          # GitHub's temporary PR merge ref before committing generated files.
+          cp docs/openapi.json /tmp/dfy-openapi.json
+          cp docs/openapi.d.ts /tmp/dfy-openapi.d.ts
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          mkdir -p docs
+          cp /tmp/dfy-openapi.json docs/openapi.json
+          cp /tmp/dfy-openapi.d.ts docs/openapi.d.ts
           git add docs/openapi.json docs/openapi.d.ts
           if git diff --cached --quiet; then
+            echo "updated=false" >> "$GITHUB_OUTPUT"
             echo "Canonical API contract is already up to date."
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git commit -m "chore(api): refresh generated OpenAPI contract"
-            git push
+            git push origin "$TARGET_BRANCH"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Verify committed API contract snapshot on pull requests
+        if: github.event_name == 'pull_request' && steps.sync_contract.outputs.updated != 'true'
+        run: |
+          test -s /tmp/committed-openapi.json
+          test -s /tmp/committed-openapi.d.ts
+          diff -u /tmp/committed-openapi.json docs/openapi.json
+          diff -u /tmp/committed-openapi.d.ts docs/openapi.d.ts
 
       - name: Upload canonical OpenAPI artifact
         uses: actions/upload-artifact@v4
