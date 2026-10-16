@@ -985,6 +985,9 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("PasswordLoginEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("text");
