@@ -469,12 +469,10 @@ public sealed class IdentityVerificationController(
                 // A delayed non-final event must never downgrade an already-passed result.
                 var finalReview = string.Equals(eventType, "applicantReviewed", StringComparison.OrdinalIgnoreCase);
                 var newState = resultStatus;
-                if (!finalReview &&
-                    string.Equals(user.IdentityVerificationStatus, "passed", StringComparison.OrdinalIgnoreCase))
-                {
-                    newState = "passed";
-                }
 
+                // A newer pending/on-hold event (for example, an ongoing recheck) must
+                // revoke runner eligibility until the provider reports a new final result.
+                // Conversely, pending noise cannot clear manual review or a recorded failure.
                 if (user.IdentityVerificationStatus is "manual_review" or "failed" &&
                     !finalReview &&
                     newState == "pending")
