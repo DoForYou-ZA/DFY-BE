@@ -182,11 +182,33 @@ public class AuthController : ControllerBase
         if (user == null)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "This verification link is invalid or has expired. Request a new one." });
 
-        user.EmailVerified = true;
-        user.EmailVerificationToken = null;
-        user.EmailVerificationExpiry = null;
-        user.SecurityStamp = CreateSecureToken();
-        await _context.SaveChangesAsync();
+        var now = DateTime.UtcNow;
+        var newSecurityStamp = CreateSecureToken();
+        if (_context.Database.IsRelational())
+        {
+            var affected = await _context.Users
+                .Where(u => u.Id == user.Id &&
+                            u.EmailVerificationToken == tokenHash &&
+                            u.EmailVerificationExpiry != null &&
+                            u.EmailVerificationExpiry > now &&
+                            !u.IsArchived)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.EmailVerified, true)
+                    .SetProperty(u => u.EmailVerificationToken, (string?)null)
+                    .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
+                    .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                    HttpContext.RequestAborted);
+            if (affected == 0)
+                return BadRequest(new ApiResponse<bool> { Success = false, Message = "This verification link is invalid or has expired. Request a new one." });
+        }
+        else
+        {
+            user.EmailVerified = true;
+            user.EmailVerificationToken = null;
+            user.EmailVerificationExpiry = null;
+            user.SecurityStamp = newSecurityStamp;
+            await _context.SaveChangesAsync();
+        }
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Email verified. You can now sign in." });
     }
@@ -249,14 +271,40 @@ public class AuthController : ControllerBase
         if (user == null)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
 
-        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-        user.EmailVerified = true;
-        user.PasswordResetTokenHash = null;
-        user.PasswordResetExpiry = null;
-        user.EmailVerificationToken = null;
-        user.EmailVerificationExpiry = null;
-        user.SecurityStamp = CreateSecureToken();
-        await _context.SaveChangesAsync();
+        var now = DateTime.UtcNow;
+        var newPasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        var newSecurityStamp = CreateSecureToken();
+        if (_context.Database.IsRelational())
+        {
+            var affected = await _context.Users
+                .Where(u => u.Id == user.Id &&
+                            u.PasswordResetTokenHash == tokenHash &&
+                            u.PasswordResetExpiry != null &&
+                            u.PasswordResetExpiry > now &&
+                            !u.IsArchived)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.PasswordHash, newPasswordHash)
+                    .SetProperty(u => u.EmailVerified, true)
+                    .SetProperty(u => u.PasswordResetTokenHash, (string?)null)
+                    .SetProperty(u => u.PasswordResetExpiry, (DateTime?)null)
+                    .SetProperty(u => u.EmailVerificationToken, (string?)null)
+                    .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
+                    .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                    HttpContext.RequestAborted);
+            if (affected == 0)
+                return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
+        }
+        else
+        {
+            user.PasswordHash = newPasswordHash;
+            user.EmailVerified = true;
+            user.PasswordResetTokenHash = null;
+            user.PasswordResetExpiry = null;
+            user.EmailVerificationToken = null;
+            user.EmailVerificationExpiry = null;
+            user.SecurityStamp = newSecurityStamp;
+            await _context.SaveChangesAsync();
+        }
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password reset successfully. Please sign in with your new password." });
     }
