@@ -365,8 +365,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseRouting();
-app.UseRateLimiter();
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
