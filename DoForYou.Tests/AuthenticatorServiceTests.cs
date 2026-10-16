@@ -36,7 +36,9 @@ public class AuthenticatorServiceTests
         var instant = DateTimeOffset.FromUnixTimeSeconds(59);
 
         Assert.True(service.VerifyCode(secret, "287082", instant));
-        Assert.False(service.VerifyCode(secret, "287083", instant));
+        Assert.True(service.TryVerifyCode(secret, "287082", out var step, instant));
+        Assert.Equal(1L, step);
+        Assert.False(service.TryVerifyCode(secret, "287083", out _, instant));
         Assert.False(service.VerifyCode(secret, "28-7082", instant));
     }
 
