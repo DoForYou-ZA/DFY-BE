@@ -152,6 +152,8 @@ public class AuthController : ControllerBase
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
                 IsVerified = user.IsVerified,
+                EmailVerified = user.EmailVerified,
+                PhoneVerified = user.PhoneVerified,
                 IdentityVerificationStatus = user.IdentityVerificationStatus,
                 AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
@@ -346,6 +348,8 @@ public class AuthController : ControllerBase
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
                 IsVerified = user.IsVerified,
+                EmailVerified = user.EmailVerified,
+                PhoneVerified = user.PhoneVerified,
                 IdentityVerificationStatus = user.IdentityVerificationStatus,
                 AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
@@ -445,6 +449,8 @@ public class AuthController : ControllerBase
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
                 IsVerified = user.IsVerified,
+                EmailVerified = user.EmailVerified,
+                PhoneVerified = user.PhoneVerified,
                 IdentityVerificationStatus = user.IdentityVerificationStatus,
                 AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
