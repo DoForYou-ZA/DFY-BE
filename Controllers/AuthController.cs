@@ -25,8 +25,6 @@ public class AuthController : ControllerBase
     private readonly IUserPolicyService _userPolicyService;
     private const string CurrentTermsVersion = "terms-v1";
     private const string CurrentPrivacyVersion = "privacy-v1";
-    private const string CurrentTermsVersion = "terms-v1";
-    private const string CurrentPrivacyVersion = "privacy-v1";
 
     public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService)
     {
