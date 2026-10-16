@@ -18,6 +18,7 @@ namespace DoForYou.API.Controllers;
 
 [ApiController]
 [Route("api/v1/auth")]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _context;
