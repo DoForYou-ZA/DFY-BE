@@ -105,7 +105,15 @@ public class AuthController : ControllerBase
         };
 
         _context.Users.Add(user);
-        await _context.SaveChangesAsync();
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            // The unique normalized-email index is authoritative under concurrent sign-ups.
+            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
+        }
 
         try
         {
