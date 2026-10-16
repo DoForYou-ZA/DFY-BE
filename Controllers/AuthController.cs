@@ -35,33 +35,64 @@ public class AuthController : ControllerBase
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
-        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
-        {
-            return Ok(new AuthResponse
-            {
-                Success = false,
-                Message = "Email already exists"
-            });
-        }
+        var email = request.Email.Trim().ToLowerInvariant();
+        var firstName = request.FirstName.Trim();
+        var lastName = request.LastName.Trim();
+        var userType = request.UserType.Trim().ToLowerInvariant();
+        var idNumber = request.IdNumber?.Trim();
+        var address = request.Address.Trim();
+        var now = DateTime.UtcNow;
+
+        if (firstName.Length is < 1 or > 50 || lastName.Length is < 1 or > 50)
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid first and last name." });
+        if (request.Password.Length < 12 || request.Password.Length > 128)
+            return BadRequest(new AuthResponse { Success = false, Message = "Use a password between 12 and 128 characters." });
+        if (userType is not ("creator" or "runner" or "both"))
+            return BadRequest(new AuthResponse { Success = false, Message = "Choose a valid account type." });
+        if (!request.TermsAccepted || !request.PrivacyAccepted ||
+            string.IsNullOrWhiteSpace(request.TermsVersion) || string.IsNullOrWhiteSpace(request.PrivacyVersion))
+            return BadRequest(new AuthResponse { Success = false, Message = "Accept the terms and privacy notice to create an account." });
+        if (!_userPolicyService.IsValidPhone(request.PhoneNumber))
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African phone number." });
+        if (!_userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(idNumber, out var derivedDateOfBirth))
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African ID number for an adult aged 18 or older." });
+        if (string.IsNullOrWhiteSpace(address) || address.Length < 2 || address.Length > 200 ||
+            _userPolicyService.IsPlaceholderAddress(address))
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid area or address." });
+        if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
+            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
+        if (await _context.Users.AnyAsync(u => u.IdNumber == idNumber))
+            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Contact support if you believe this is an error." });
+
+        var normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
+        if (normalizedPhone == null)
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African mobile number." });
 
         var user = new User
         {
-            FirstName = request.FirstName,
-            LastName = request.LastName,
-            Email = request.Email ?? string.Empty,
-            PhoneNumber = request.PhoneNumber,
-            UserType = request.UserType,
-            IdNumber = request.IdNumber,
-            Address = request.Address,
-            DateOfBirth = ConvertToUtc(request.DateOfBirth),
-            Username = request.Username,
+            FirstName = firstName,
+            LastName = lastName,
+            Email = email,
+            PhoneNumber = normalizedPhone,
+            UserType = userType,
+            IdNumber = idNumber,
+            Address = address,
+            // Ignore client DOB: the ID prefix is parsed and age checked on the server.
+            DateOfBirth = derivedDateOfBirth,
+            Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             IsVerified = false,
             ProfileCompleted = false,
             EmailVerified = false,
             PhoneVerified = false,
+            TermsAcceptedAt = now,
+            TermsVersion = request.TermsVersion.Trim(),
+            PrivacyAcceptedAt = now,
+            PrivacyVersion = request.PrivacyVersion.Trim(),
+            MarketingConsent = request.MarketingConsent,
+            MarketingConsentUpdatedAt = request.MarketingConsent ? now : null,
             Roles = "User",
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         };
 
         _context.Users.Add(user);
@@ -184,9 +215,13 @@ public class AuthController : ControllerBase
         // Clean email - remove mailto: prefix if present
         var cleanEmail = request.Email?.Replace("mailto:", "").Trim();
         
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == cleanEmail);
-        
-        if (user == null || user.IsArchived || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        cleanEmail = cleanEmail?.ToLowerInvariant();
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail);
+        // Perform a hash verification for unknown accounts to reduce timing-based enumeration.
+        var hashToVerify = user?.PasswordHash ?? DummyPasswordHash;
+        var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password ?? string.Empty, hashToVerify);
+
+        if (user == null || user.IsArchived || !passwordValid)
         {
             return Unauthorized(new AuthResponse
             {
@@ -228,6 +263,18 @@ public class AuthController : ControllerBase
             },
             Message = "Login successful"
         });
+    }
+
+    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(
+        "not-a-real-user-password-never-use-this-to-sign-in", workFactor: 11);
+
+    private static string? NormalizeSouthAfricanPhone(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return null;
+        var digits = new string(input.Where(char.IsAsciiDigit).ToArray());
+        if (digits.StartsWith("27", StringComparison.Ordinal)) digits = digits[2..];
+        else if (digits.StartsWith('0')) digits = digits[1..];
+        return digits.Length == 9 && digits[0] is >= '6' and <= '8' ? "0" + digits : null;
     }
 
     private string GenerateJwtToken(User user)
