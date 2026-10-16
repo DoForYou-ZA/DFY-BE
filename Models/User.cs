@@ -8,6 +8,8 @@ public class User
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
+    public string NormalizedEmail { get; set; } = string.Empty;
+    public string? GoogleSubject { get; set; }
     public string PhoneNumber { get; set; } = string.Empty;
     public string UserType { get; set; } = string.Empty;
     public string? IdNumber { get; set; }
@@ -32,6 +34,11 @@ public class User
     // These are separate runner-eligibility facts; a syntactically valid ID or bank account is not identity verification.
     public string IdentityVerificationStatus { get; set; } = "not_started";
     public bool AuthenticatorTwoFactorEnabled { get; set; }
+    public string? AuthenticatorSecretEncrypted { get; set; }
+    public string? PendingAuthenticatorSecretEncrypted { get; set; }
+    public string? AuthenticatorRecoveryCodeHashes { get; set; }
+    public DateTime? AuthenticatorEnrolledAt { get; set; }
+    public DateTime? LastTwoFactorVerifiedAt { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Username { get; set; }
     public decimal WalletBalance { get; set; }
