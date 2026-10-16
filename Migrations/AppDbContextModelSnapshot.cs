@@ -1049,6 +1049,9 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("MarketingConsentUpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("MarketingConsentVersion")
+                        .HasColumnType("text");
+
                     b.Property<string>("UserType")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1070,6 +1073,57 @@ namespace DoForYou.API.Migrations
                         .HasDatabaseName("IX_Users_NormalizedEmail");
 
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.UserConsentEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Accepted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ConsentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ConsentType", "RecordedAt")
+                        .HasDatabaseName("IX_UserConsentEvents_UserId_ConsentType_RecordedAt");
+
+                    b.ToTable("UserConsentEvents");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.UserConsentEvent", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("DoForYou.API.Models.WalletTransaction", b =>
