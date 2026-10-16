@@ -375,6 +375,89 @@ public sealed class IdentityVerificationController(
         });
     }
 
+    /// <summary>
+    /// Mints a fresh short-lived Sumsub SDK token for the already-authenticated
+    /// runner's pending verification. It never accepts a caller-supplied user ID.
+    /// </summary>
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [HttpPost("refresh")]
+    public async Task<ActionResult<ApiResponse<object>>> RefreshProviderSession(CancellationToken cancellationToken)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        if (!identityVerification.IsConfigured)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "IDENTITY_PROVIDER_NOT_CONFIGURED",
+                    Message = "Identity verification is not available yet."
+                });
+        }
+
+        var user = await context.Users.AsNoTracking()
+            .Where(u => u.Id == userId.Value)
+            .Select(u => new
+            {
+                u.Id,
+                u.Email,
+                u.UserType,
+                u.EmailVerified,
+                u.IsArchived,
+                u.IdentityVerificationProvider,
+                u.IdentityVerificationStatus,
+                u.IdentityVerificationExternalUserId
+            })
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (user == null || user.IsArchived) return Unauthorized();
+        if (!user.EmailVerified ||
+            !IsRunnerPreference(user.UserType) ||
+            !string.Equals(user.IdentityVerificationProvider, "Sumsub", StringComparison.Ordinal) ||
+            !string.Equals(user.IdentityVerificationStatus, "pending", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(user.IdentityVerificationExternalUserId, $"dfy-user-{user.Id}", StringComparison.Ordinal))
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Error = "IDENTITY_REFRESH_NOT_ALLOWED",
+                Message = "A fresh verification session is available only while your runner verification is pending."
+            });
+        }
+
+        try
+        {
+            var accessToken = await identityVerification.CreateSdkAccessTokenAsync(
+                user.IdentityVerificationExternalUserId,
+                user.Email,
+                cancellationToken);
+            return Ok(new ApiResponse<object>
+            {
+                Success = true,
+                Data = new { accessToken, expiresInSeconds = 600, provider = "Sumsub" },
+                Message = "Verification session refreshed."
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Identity-provider session refresh failed for user {UserId}: {FailureType}", user.Id, ex.GetType().Name);
+            return StatusCode(StatusCodes.Status502BadGateway,
+                new ApiResponse<object>
+                {
+                    Success = false,
+                    Error = "IDENTITY_PROVIDER_UNAVAILABLE",
+                    Message = "The verification provider could not refresh this session. Return to your profile and retry."
+                });
+        }
+    }
+
     [AllowAnonymous]
     [HttpPost("sumsub/webhook")]
     public async Task<IActionResult> SumsubWebhook(CancellationToken cancellationToken)
