@@ -767,6 +767,24 @@ public class AuthController : ControllerBase
     }
 
     [EnableRateLimiting("auth")]
+    [HttpPost("two-factor/cancel-setup")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> CancelTwoFactorSetup()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+        if (user.AuthenticatorTwoFactorEnabled)
+            return Conflict(new ApiResponse<bool> { Success = false, Message = "Authenticator is already enabled; use the disable flow instead." });
+
+        user.PendingAuthenticatorSecretEncrypted = null;
+        user.PendingAuthenticatorSecretExpiry = null;
+        await _context.SaveChangesAsync();
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Pending authenticator setup cancelled." });
+    }
+
+    [EnableRateLimiting("auth")]
     [HttpPost("two-factor/disable")]
     [Authorize]
     public async Task<ActionResult<ApiResponse<bool>>> DisableTwoFactor([FromBody] DisableTwoFactorRequest request)
