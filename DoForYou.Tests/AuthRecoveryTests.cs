@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using DoForYou.API.Controllers;
@@ -262,6 +263,281 @@ public class AuthRecoveryTests
         Assert.Null(user.EmailVerificationExpiry);
     }
 
+    [Fact]
+    public async System.Threading.Tasks.Task Password_reset_respects_daily_send_quota()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "reset-quota@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-unique-test-passphrase-2026"),
+            EmailVerified = true,
+            PasswordResetSentAt = now.AddMinutes(-2),
+            PasswordResetSendWindowStartAt = now.AddHours(-2),
+            PasswordResetSendCount = 5
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+        var result = await controller.ForgotPassword(new ForgotPasswordRequest { Email = user.Email });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Empty(emailSender.Messages);
+        Assert.Equal(5, user.PasswordResetSendCount);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Password_reset_allows_a_new_quota_after_24_hours()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "reset-window@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-unique-test-passphrase-2026"),
+            EmailVerified = true,
+            PasswordResetSentAt = now.AddMinutes(-2),
+            PasswordResetSendWindowStartAt = now.AddHours(-25),
+            PasswordResetSendCount = 5
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+        var result = await controller.ForgotPassword(new ForgotPasswordRequest { Email = user.Email });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Single(emailSender.Messages);
+        Assert.Equal(1, user.PasswordResetSendCount);
+        Assert.True(user.PasswordResetExpiry > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Password_reset_invalidates_lockout_state_and_other_sessions()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        const string rawToken = "one-time-reset-token";
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "reset-unlock@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Old-unique-passphrase-123"),
+            SecurityStamp = "old-session",
+            EmailVerified = true,
+            PasswordResetTokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken))).ToLowerInvariant(),
+            PasswordResetExpiry = DateTime.UtcNow.AddMinutes(10),
+            FailedLoginAttempts = 10,
+            FailedLoginWindowStartAt = DateTime.UtcNow.AddMinutes(-1),
+            LoginLockoutUntil = DateTime.UtcNow.AddMinutes(15)
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        var result = await controller.ResetPassword(new AccountResetPasswordRequest
+        {
+            Token = rawToken,
+            NewPassword = "A-new-unique-passphrase-2026"
+        });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal(0, user.FailedLoginAttempts);
+        Assert.Null(user.FailedLoginWindowStartAt);
+        Assert.Null(user.LoginLockoutUntil);
+        Assert.NotEqual("old-session", user.SecurityStamp);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Ten_failed_password_attempts_trigger_timed_lockout()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "lockout@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-valid-unique-passphrase-2026"),
+            EmailVerified = true,
+            SecurityStamp = "initial-stamp",
+            Roles = "User"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            var result = await controller.Login(new LoginRequest
+            {
+                Email = " LOCKOUT@example.com ",
+                Password = "wrong-password"
+            });
+            Assert.IsType<UnauthorizedObjectResult>(result.Result);
+        }
+
+        Assert.Equal(10, user.FailedLoginAttempts);
+        Assert.True(user.LoginLockoutUntil > DateTime.UtcNow);
+
+        var validPasswordDuringLockout = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "A-valid-unique-passphrase-2026"
+        });
+        Assert.IsType<UnauthorizedObjectResult>(validPasswordDuringLockout.Result);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Server_logout_rotates_the_security_stamp()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            Id = 73,
+            FirstName = "Test",
+            LastName = "User",
+            Email = "logout@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-valid-unique-passphrase-2026"),
+            EmailVerified = true,
+            SecurityStamp = "active-session-stamp",
+            Roles = "User"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())], "Test"));
+        var result = await controller.Logout();
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.NotEqual("active-session-stamp", user.SecurityStamp);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Authenticator_setup_expires_after_ten_minutes()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            Id = 74,
+            FirstName = "Test",
+            LastName = "User",
+            Email = "totp-setup@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "runner",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-valid-unique-passphrase-2026"),
+            EmailVerified = true,
+            SecurityStamp = "active-session-stamp",
+            Roles = "User"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        controller.ControllerContext.HttpContext.User = new ClaimsPrincipal(
+            new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, user.Id.ToString())], "Test"));
+        var setup = await controller.SetupTwoFactor(new TwoFactorSetupRequest { CurrentPassword = "A-valid-unique-passphrase-2026" });
+        Assert.IsType<OkObjectResult>(setup.Result);
+        Assert.NotNull(user.PendingAuthenticatorSecretExpiry);
+        Assert.InRange((user.PendingAuthenticatorSecretExpiry!.Value - DateTime.UtcNow).TotalMinutes, 9.0, 10.0);
+
+        user.PendingAuthenticatorSecretExpiry = DateTime.UtcNow.AddSeconds(-1);
+        var expired = await controller.ConfirmTwoFactor(new TwoFactorCodeRequest { Code = "000000" });
+        Assert.IsType<ConflictObjectResult>(expired.Result);
+        Assert.Null(user.PendingAuthenticatorSecretEncrypted);
+        Assert.Null(user.PendingAuthenticatorSecretExpiry);
+        Assert.False(user.AuthenticatorTwoFactorEnabled);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Recovery_code_can_only_be_used_once_for_sign_in()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var authService = new AuthenticatorService(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Authenticator:EncryptionKey"] = Convert.ToBase64String(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray())
+            })
+            .Build());
+        var recoveryCode = authService.GenerateRecoveryCode();
+        var user = new User
+        {
+            Id = 75,
+            FirstName = "Test",
+            LastName = "User",
+            Email = "totp-recovery@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "runner",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-valid-unique-passphrase-2026"),
+            EmailVerified = true,
+            AuthenticatorTwoFactorEnabled = true,
+            AuthenticatorSecretEncrypted = "encrypted-secret-is-not-needed-for-recovery",
+            AuthenticatorRecoveryCodeHashes = System.Text.Json.JsonSerializer.Serialize(new[] { authService.HashRecoveryCode(recoveryCode) }),
+            SecurityStamp = "active-session-stamp",
+            Roles = "User"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        var first = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "A-valid-unique-passphrase-2026",
+            SecondFactorCode = recoveryCode
+        });
+        Assert.IsType<OkObjectResult>(first.Result);
+        Assert.Empty(System.Text.Json.JsonSerializer.Deserialize<List<string>>(user.AuthenticatorRecoveryCodeHashes!)!);
+
+        var replay = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "A-valid-unique-passphrase-2026",
+            SecondFactorCode = recoveryCode
+        });
+        Assert.IsType<UnauthorizedObjectResult>(replay.Result);
+    }
+
     private static AuthController CreateController(AppDbContext context, IEmailSender emailSender)
     {
         var settings = new Dictionary<string, string?>
@@ -269,7 +545,8 @@ public class AuthRecoveryTests
             ["Jwt:Key"] = "test-signing-key-that-is-at-least-32-characters-long",
             ["Jwt:Issuer"] = "DoForYou",
             ["Jwt:Audience"] = "DoForYou",
-            ["Frontend:BaseUrl"] = "https://dfy-fe-staging.onrender.com"
+            ["Frontend:BaseUrl"] = "https://dfy-fe-staging.onrender.com",
+            ["Authenticator:EncryptionKey"] = Convert.ToBase64String(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray())
         };
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var controller = new AuthController(
