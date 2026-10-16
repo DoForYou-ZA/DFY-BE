@@ -223,6 +223,7 @@ public class AuthRecoveryTests
 
         Assert.True(response.Success);
         Assert.True(BCrypt.Net.BCrypt.Verify("A-new-unique-passphrase-2026", user.PasswordHash));
+        Assert.True(user.PasswordLoginEnabled);
         Assert.True(user.EmailVerified);
         Assert.NotEqual(previousStamp, user.SecurityStamp);
         Assert.Null(user.PasswordResetTokenHash);
@@ -234,6 +235,40 @@ public class AuthRecoveryTests
             NewPassword = "Another-unique-passphrase-2026"
         });
         Assert.IsType<BadRequestObjectResult>(replayResult.Result);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Google_only_account_cannot_sign_in_with_a_password_until_recovery_enables_it()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            FirstName = "Google",
+            LastName = "Only",
+            Email = "google-only@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))),
+            PasswordLoginEnabled = false,
+            GoogleSubject = "google-subject-for-test",
+            EmailVerified = true,
+            Roles = "User"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender());
+        var result = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "not-the-random-credential"
+        });
+
+        Assert.IsType<UnauthorizedObjectResult>(result.Result);
+        Assert.False(user.PasswordLoginEnabled);
     }
 
     [Fact]
