@@ -130,12 +130,21 @@ public class AuthController : ControllerBase
         _context.Users.Add(user);
         try
         {
-            await _context.SaveChangesAsync();
+            await _context.SaveChangesAsync(HttpContext.RequestAborted);
         }
         catch (DbUpdateException)
         {
-            // The unique normalized-email index is authoritative under concurrent sign-ups.
-            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
+            // The database unique index is the final concurrent-registration guard.
+            // Only map this exception to a conflict when the normalized email now exists;
+            // actual database outages must still surface as server errors and be observable.
+            _context.ChangeTracker.Clear();
+            var emailAlreadyRegistered = await _context.Users.AsNoTracking().AnyAsync(u =>
+                u.NormalizedEmail == email ||
+                (u.NormalizedEmail == null && u.Email.ToLower() == email),
+                HttpContext.RequestAborted);
+            if (emailAlreadyRegistered)
+                return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
+            throw;
         }
 
         try
