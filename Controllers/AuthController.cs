@@ -498,9 +498,6 @@ public class AuthController : ControllerBase
 
         if (user.AuthenticatorTwoFactorEnabled)
         {
-            if (!_authenticatorService.IsConfigured)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                    new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
             if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
@@ -760,10 +757,6 @@ public class AuthController : ControllerBase
         if (user == null || user.IsArchived) return Unauthorized();
         if (!user.AuthenticatorTwoFactorEnabled)
             return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Authenticator two-factor authentication is already disabled." });
-        if (!_authenticatorService.IsConfigured)
-            return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                new ApiResponse<bool> { Success = false, Message = "Authenticator security is temporarily unavailable. Contact support." });
-
         if (user.GoogleSubject == null &&
             (string.IsNullOrWhiteSpace(request.CurrentPassword) ||
              !BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash)))
@@ -913,9 +906,6 @@ public class AuthController : ControllerBase
 
         if (user.AuthenticatorTwoFactorEnabled)
         {
-            if (!_authenticatorService.IsConfigured)
-                return StatusCode(StatusCodes.Status503ServiceUnavailable,
-                    new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
             if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
