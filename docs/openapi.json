@@ -2965,6 +2965,35 @@
         }
       }
     },
+    "/api/v1/identity-verification/refresh": {
+      "post": {
+        "tags": [
+          "IdentityVerification"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/identity-verification/sumsub/webhook": {
       "post": {
         "tags": [
