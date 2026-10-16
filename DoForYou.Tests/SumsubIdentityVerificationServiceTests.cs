@@ -100,10 +100,7 @@ public class SumsubIdentityVerificationServiceTests
             NullLogger<SumsubIdentityVerificationService>.Instance);
 
         Assert.False(service.IsConfigured);
-        Assert.Throws<InvalidOperationException>(() =>
-            service.VerifyWebhookSignature(Encoding.UTF8.GetBytes("{}"), "00", "HMAC_SHA256_HEX")
-            ? throw new InvalidOperationException("unexpected")
-            : null);
+        Assert.False(service.VerifyWebhookSignature(Encoding.UTF8.GetBytes("{}"), "00", "HMAC_SHA256_HEX"));
     }
 
     private sealed class StubHandler(
