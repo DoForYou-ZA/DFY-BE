@@ -669,7 +669,9 @@ public class AuthController : ControllerBase
                                 u.NormalizedEmail == accountEmail &&
                                 u.SensitiveActionTokenHash == tokenHash &&
                                 u.SensitiveActionTokenExpiry != null &&
-                                u.SensitiveActionTokenExpiry > now)
+                                u.SensitiveActionTokenExpiry > now &&
+                                (u.NormalizedEmail == accountEmail ||
+                                 (u.NormalizedEmail == null && u.Email.ToLower() == accountEmail)))
                     .ExecuteUpdateAsync(setters => setters
                         .SetProperty(u => u.GoogleSubject, googlePayload.Subject)
                         .SetProperty(u => u.SensitiveActionTokenHash, (string?)null)
