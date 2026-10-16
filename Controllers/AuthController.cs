@@ -440,7 +440,10 @@ public class AuthController : ControllerBase
                     .SetProperty(u => u.EmailVerificationToken, (string?)null)
                     .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
                     .SetProperty(u => u.EmailVerificationSentAt, (DateTime?)null)
-                    .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                    .SetProperty(u => u.SecurityStamp, newSecurityStamp)
+                    .SetProperty(u => u.FailedLoginAttempts, 0)
+                    .SetProperty(u => u.FailedLoginWindowStartAt, (DateTime?)null)
+                    .SetProperty(u => u.LoginLockoutUntil, (DateTime?)null),
                     HttpContext.RequestAborted);
             if (affected == 0)
                 return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
@@ -456,6 +459,9 @@ public class AuthController : ControllerBase
             user.EmailVerificationExpiry = null;
             user.EmailVerificationSentAt = null;
             user.SecurityStamp = newSecurityStamp;
+            user.FailedLoginAttempts = 0;
+            user.FailedLoginWindowStartAt = null;
+            user.LoginLockoutUntil = null;
             await _context.SaveChangesAsync();
         }
 
@@ -487,6 +493,8 @@ public class AuthController : ControllerBase
             });
         if (user.IsArchived)
             return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be completed for this account." });
+        if (user.LoginLockoutUntil.HasValue && user.LoginLockoutUntil.Value > DateTime.UtcNow)
+            return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be completed for this account." });
         if (!string.IsNullOrWhiteSpace(user.GoogleSubject) &&
             !string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
             return Conflict(new AuthResponse { Success = false, Message = "This Google account cannot be linked to the selected DoForYou account." });
@@ -507,10 +515,16 @@ public class AuthController : ControllerBase
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
             if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
+            {
+                await RecordFailedLoginAsync(user.Id);
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
+            }
             user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
         }
 
+        user.FailedLoginAttempts = 0;
+        user.FailedLoginWindowStartAt = null;
+        user.LoginLockoutUntil = null;
         user.LastLoginAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
         _logger.LogInformation("Successful Google login for user id {UserId}", user.Id);
