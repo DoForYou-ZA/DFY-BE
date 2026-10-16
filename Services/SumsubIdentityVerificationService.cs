@@ -14,6 +14,7 @@ public interface IIdentityVerificationService
 {
     bool IsConfigured { get; }
     string ConsentVersion { get; }
+    string ExpectedLevelName { get; }
     Task<string> CreateSdkAccessTokenAsync(string externalUserId, string verifiedEmail, CancellationToken cancellationToken);
     bool VerifyWebhookSignature(ReadOnlySpan<byte> rawBody, string? digest, string? digestAlgorithm);
 }
@@ -32,6 +33,7 @@ public sealed class SumsubIdentityVerificationService(
     private string LevelName => ReadSetting("SUMSUB_LEVEL_NAME", "Sumsub:LevelName");
     private string WebhookSecret => ReadSetting("SUMSUB_WEBHOOK_SECRET", "Sumsub:WebhookSecret");
     public string ConsentVersion => ReadSetting("IDENTITY_VERIFICATION_CONSENT_VERSION", "IdentityVerification:ConsentVersion");
+    public string ExpectedLevelName => LevelName;
 
     public bool IsConfigured =>
         !string.IsNullOrWhiteSpace(AppToken) &&
