@@ -27,6 +27,19 @@ public class AppDbContext : DbContext
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<Testimonial> Testimonials { get; set; }
 
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_NormalizedEmail");
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.GoogleSubject)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_GoogleSubject");
+    }
+
     public override int SaveChanges()
     {
         NormalizeUtcDates();
