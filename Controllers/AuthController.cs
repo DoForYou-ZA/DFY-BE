@@ -503,7 +503,7 @@ public class AuthController : ControllerBase
                     new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
-            if (!ValidateSecondFactor(user, request.SecondFactorCode))
+            if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
             user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
         }
@@ -651,6 +651,7 @@ public class AuthController : ControllerBase
 
         var secret = _authenticatorService.CreateSecret();
         user.PendingAuthenticatorSecretEncrypted = _authenticatorService.EncryptSecret(secret);
+        user.PendingAuthenticatorSecretExpiry = DateTime.UtcNow.AddMinutes(10);
         await _context.SaveChangesAsync();
 
         return Ok(new ApiResponse<object>
@@ -682,24 +683,63 @@ public class AuthController : ControllerBase
                 new ApiResponse<object> { Success = false, Message = "Authenticator setup is not configured on this staging API yet." });
         if (user.AuthenticatorTwoFactorEnabled)
             return Conflict(new ApiResponse<object> { Success = false, Message = "Authenticator two-factor authentication is already enabled." });
-        if (string.IsNullOrWhiteSpace(user.PendingAuthenticatorSecretEncrypted))
-            return Conflict(new ApiResponse<object> { Success = false, Message = "Start authenticator setup before confirming it." });
+
+        var pendingEncrypted = user.PendingAuthenticatorSecretEncrypted;
+        var now = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(pendingEncrypted) ||
+            !user.PendingAuthenticatorSecretExpiry.HasValue ||
+            user.PendingAuthenticatorSecretExpiry.Value <= now)
+        {
+            user.PendingAuthenticatorSecretEncrypted = null;
+            user.PendingAuthenticatorSecretExpiry = null;
+            await _context.SaveChangesAsync();
+            return Conflict(new ApiResponse<object> { Success = false, Message = "Authenticator setup has expired. Start setup again." });
+        }
 
         string secret;
-        try { secret = _authenticatorService.DecryptSecret(user.PendingAuthenticatorSecretEncrypted); }
+        try { secret = _authenticatorService.DecryptSecret(pendingEncrypted); }
         catch (CryptographicException) { return StatusCode(503, new ApiResponse<object> { Success = false, Message = "Authenticator setup cannot be decrypted. Contact support." }); }
-        if (!_authenticatorService.VerifyCode(secret, request.Code))
+        catch (FormatException) { return StatusCode(503, new ApiResponse<object> { Success = false, Message = "Authenticator setup cannot be decrypted. Contact support." }); }
+        if (!_authenticatorService.VerifyCode(secret, request.Code, new DateTimeOffset(now)))
             return BadRequest(new ApiResponse<object> { Success = false, Message = "The authenticator code is invalid or expired. Check your device time and try again." });
 
         var recoveryCodes = Enumerable.Range(0, 10).Select(_ => _authenticatorService.GenerateRecoveryCode()).ToArray();
-        user.AuthenticatorSecretEncrypted = user.PendingAuthenticatorSecretEncrypted;
-        user.PendingAuthenticatorSecretEncrypted = null;
-        user.AuthenticatorRecoveryCodeHashes = System.Text.Json.JsonSerializer.Serialize(
+        var serializedRecoveryHashes = System.Text.Json.JsonSerializer.Serialize(
             recoveryCodes.Select(_authenticatorService.HashRecoveryCode).ToArray());
-        user.AuthenticatorEnrolledAt = DateTime.UtcNow;
-        user.AuthenticatorTwoFactorEnabled = true;
-        user.SecurityStamp = CreateSecureToken();
-        await _context.SaveChangesAsync();
+        var newSecurityStamp = CreateSecureToken();
+
+        if (_context.Database.IsRelational())
+        {
+            var affected = await _context.Users
+                .Where(u => u.Id == user.Id &&
+                            !u.IsArchived &&
+                            !u.AuthenticatorTwoFactorEnabled &&
+                            u.PendingAuthenticatorSecretEncrypted == pendingEncrypted &&
+                            u.PendingAuthenticatorSecretExpiry != null &&
+                            u.PendingAuthenticatorSecretExpiry > now)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.AuthenticatorSecretEncrypted, pendingEncrypted)
+                    .SetProperty(u => u.PendingAuthenticatorSecretEncrypted, (string?)null)
+                    .SetProperty(u => u.PendingAuthenticatorSecretExpiry, (DateTime?)null)
+                    .SetProperty(u => u.AuthenticatorRecoveryCodeHashes, serializedRecoveryHashes)
+                    .SetProperty(u => u.AuthenticatorEnrolledAt, (DateTime?)now)
+                    .SetProperty(u => u.AuthenticatorTwoFactorEnabled, true)
+                    .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                    HttpContext.RequestAborted);
+            if (affected != 1)
+                return Conflict(new ApiResponse<object> { Success = false, Message = "Authenticator setup has expired or was already confirmed. Start setup again." });
+        }
+        else
+        {
+            user.AuthenticatorSecretEncrypted = pendingEncrypted;
+            user.PendingAuthenticatorSecretEncrypted = null;
+            user.PendingAuthenticatorSecretExpiry = null;
+            user.AuthenticatorRecoveryCodeHashes = serializedRecoveryHashes;
+            user.AuthenticatorEnrolledAt = now;
+            user.AuthenticatorTwoFactorEnabled = true;
+            user.SecurityStamp = newSecurityStamp;
+            await _context.SaveChangesAsync();
+        }
 
         return Ok(new ApiResponse<object>
         {
@@ -729,7 +769,7 @@ public class AuthController : ControllerBase
              !BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash)))
             return Unauthorized(new ApiResponse<bool> { Success = false, Message = "Confirm your current password before disabling authenticator security." });
 
-        if (!ValidateSecondFactor(user, request.Code))
+        if (!await ValidateSecondFactorAsync(user, request.Code))
             return Unauthorized(new ApiResponse<bool> { Success = false, Message = "The authenticator or recovery code is invalid." });
 
         user.AuthenticatorTwoFactorEnabled = false;
@@ -878,7 +918,7 @@ public class AuthController : ControllerBase
                     new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
-            if (!ValidateSecondFactor(user, request.SecondFactorCode))
+            if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
             user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
         }
@@ -916,34 +956,51 @@ public class AuthController : ControllerBase
         }
     }
 
-    private bool ValidateSecondFactor(User user, string? code)
+    private async Task<bool> ValidateSecondFactorAsync(User user, string? code)
     {
-        if (!_authenticatorService.IsConfigured || string.IsNullOrWhiteSpace(code)) return false;
-        if (!string.IsNullOrWhiteSpace(user.AuthenticatorSecretEncrypted))
-        {
-            try
-            {
-                var secret = _authenticatorService.DecryptSecret(user.AuthenticatorSecretEncrypted);
-                if (_authenticatorService.VerifyCode(secret, code)) return true;
-            }
-            catch (CryptographicException ex)
-            {
-                _logger.LogError(ex, "Authenticator secret decryption failed for user {UserId}", user.Id);
-                return false;
-            }
-            catch (FormatException ex)
-            {
-                _logger.LogError(ex, "Authenticator secret format was invalid for user {UserId}", user.Id);
-                return false;
-            }
-        }
+        if (string.IsNullOrWhiteSpace(code)) return false;
 
-        if (_authenticatorService.TryConsumeRecoveryCode(code, user.AuthenticatorRecoveryCodeHashes, out var remaining))
+        // Recovery codes are independently hashed and remain usable when the TOTP
+        // encryption key is temporarily unavailable. Consume them with a compare-
+        // and-swap update so two concurrent requests cannot spend the same code.
+        var previousHashes = user.AuthenticatorRecoveryCodeHashes;
+        if (_authenticatorService.TryConsumeRecoveryCode(code, previousHashes, out var remainingHashes))
         {
-            user.AuthenticatorRecoveryCodeHashes = remaining;
+            if (_context.Database.IsRelational())
+            {
+                if (string.IsNullOrWhiteSpace(previousHashes)) return false;
+                var affected = await _context.Users
+                    .Where(u => u.Id == user.Id &&
+                                u.AuthenticatorTwoFactorEnabled &&
+                                u.AuthenticatorRecoveryCodeHashes == previousHashes)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(u => u.AuthenticatorRecoveryCodeHashes, remainingHashes),
+                        HttpContext.RequestAborted);
+                if (affected != 1) return false;
+            }
+            user.AuthenticatorRecoveryCodeHashes = remainingHashes;
             return true;
         }
-        return false;
+
+        if (!_authenticatorService.IsConfigured ||
+            string.IsNullOrWhiteSpace(user.AuthenticatorSecretEncrypted))
+            return false;
+
+        try
+        {
+            var secret = _authenticatorService.DecryptSecret(user.AuthenticatorSecretEncrypted);
+            return _authenticatorService.VerifyCode(secret, code);
+        }
+        catch (CryptographicException ex)
+        {
+            _logger.LogError(ex, "Authenticator secret decryption failed for user {UserId}", user.Id);
+            return false;
+        }
+        catch (FormatException ex)
+        {
+            _logger.LogError(ex, "Authenticator secret format was invalid for user {UserId}", user.Id);
+            return false;
+        }
     }
 
     private static int ReadRecoveryCodeCount(string? serializedHashes)
