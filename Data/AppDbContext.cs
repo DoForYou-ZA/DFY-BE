@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<Testimonial> Testimonials { get; set; }
     public DbSet<UserConsentEvent> UserConsentEvents { get; set; } = null!;
+    public DbSet<IdentityVerificationEvent> IdentityVerificationEvents { get; set; } = null!;
 
     public override int SaveChanges()
     {
@@ -81,6 +82,21 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_UserConsentEvents_UserId_ConsentType_RecordedAt");
 
         modelBuilder.Entity<UserConsentEvent>()
+            .HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
+            .HasIndex(e => new { e.Provider, e.EventHash })
+            .IsUnique()
+            .HasDatabaseName("IX_IdentityVerificationEvents_Provider_EventHash");
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
+            .HasIndex(e => new { e.UserId, e.ReceivedAt })
+            .HasDatabaseName("IX_IdentityVerificationEvents_UserId_ReceivedAt");
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
             .HasOne(e => e.User)
             .WithMany()
             .HasForeignKey(e => e.UserId)
