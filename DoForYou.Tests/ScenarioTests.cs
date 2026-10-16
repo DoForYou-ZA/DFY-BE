@@ -190,9 +190,9 @@ public class ScenarioTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task RunnerCannotClaimPostedTaskWithoutPaystackRecipient()
+    public async System.Threading.Tasks.Task VerifiedRunnerCanClaimTaskBeforePayoutAccountSetup()
     {
-        using var context = CreateContext(nameof(RunnerCannotClaimPostedTaskWithoutPaystackRecipient));
+        using var context = CreateContext(nameof(VerifiedRunnerCanClaimTaskBeforePayoutAccountSetup));
         var poster = CreateUser(1, "creator", true, "poster@test.com");
         var runner = CreateUser(2, "runner", true, "runner@test.com");
         context.Users.AddRange(poster, runner);
@@ -232,11 +232,10 @@ public class ScenarioTests
             TermsAccepted = true
         });
 
-        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
-        var response = Assert.IsType<ApiResponse<bool>>(conflict.Value);
-        Assert.False(response.Success);
-        Assert.Equal("PAYOUT_BANK_ACCOUNT_REQUIRED", response.Error);
-        Assert.Equal("Posted", (await context.Tasks.SingleAsync(t => t.Id == task.Id)).TaskStatus);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(ok.Value);
+        Assert.True(response.Success);
+        Assert.Equal("Claimed", (await context.Tasks.SingleAsync(t => t.Id == task.Id)).TaskStatus);
     }
 
     [Fact]
@@ -679,6 +678,8 @@ private static AppDbContext CreateContext(string name)
             PasswordHash = "hash",
             IsVerified = true,
             EmailVerified = true,
+            IdentityVerificationStatus = userType == "runner" ? "passed" : "not_started",
+            AuthenticatorTwoFactorEnabled = userType == "runner",
         };
     }
 
