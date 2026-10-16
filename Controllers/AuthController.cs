@@ -106,9 +106,9 @@ public class AuthController : ControllerBase
         };
 
         _context.UserConsentEvents.AddRange(
-            new UserConsentEvent { UserId = user.Id, ConsentType = "terms", Accepted = true, Version = user.TermsVersion!, RecordedAt = now, Source = "signup" },
-            new UserConsentEvent { UserId = user.Id, ConsentType = "privacy", Accepted = true, Version = user.PrivacyVersion!, RecordedAt = now, Source = "signup" },
-            new UserConsentEvent { UserId = user.Id, ConsentType = "marketing", Accepted = user.MarketingConsent, Version = "marketing-v1", RecordedAt = now, Source = "signup" });
+            new UserConsentEvent { User = user, ConsentType = "terms", Accepted = true, Version = user.TermsVersion!, RecordedAt = now, Source = "signup" },
+            new UserConsentEvent { User = user, ConsentType = "privacy", Accepted = true, Version = user.PrivacyVersion!, RecordedAt = now, Source = "signup" },
+            new UserConsentEvent { User = user, ConsentType = "marketing", Accepted = user.MarketingConsent, Version = "marketing-v1", RecordedAt = now, Source = "signup" });
         _context.Users.Add(user);
         try
         {
@@ -599,9 +599,9 @@ public class AuthController : ControllerBase
             CreatedAt = now
         };
         _context.UserConsentEvents.AddRange(
-            new UserConsentEvent { UserId = user.Id, ConsentType = "terms", Accepted = true, Version = user.TermsVersion!, RecordedAt = now, Source = "google-signup" },
-            new UserConsentEvent { UserId = user.Id, ConsentType = "privacy", Accepted = true, Version = user.PrivacyVersion!, RecordedAt = now, Source = "google-signup" },
-            new UserConsentEvent { UserId = user.Id, ConsentType = "marketing", Accepted = user.MarketingConsent, Version = "marketing-v1", RecordedAt = now, Source = "google-signup" });
+            new UserConsentEvent { User = user, ConsentType = "terms", Accepted = true, Version = user.TermsVersion!, RecordedAt = now, Source = "google-signup" },
+            new UserConsentEvent { User = user, ConsentType = "privacy", Accepted = true, Version = user.PrivacyVersion!, RecordedAt = now, Source = "google-signup" },
+            new UserConsentEvent { User = user, ConsentType = "marketing", Accepted = user.MarketingConsent, Version = "marketing-v1", RecordedAt = now, Source = "google-signup" });
         _context.Users.Add(user);
         try
         {
