@@ -998,7 +998,7 @@ public class AuthController : ControllerBase
         }
     }
 
-    private async Task RecordFailedLoginAsync(int userId)
+    private async System.Threading.Tasks.Task RecordFailedLoginAsync(int userId)
     {
         var now = DateTime.UtcNow;
         var cutoff = now.AddMinutes(-15);
