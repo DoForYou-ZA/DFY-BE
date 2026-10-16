@@ -37,4 +37,12 @@ public class User
     public string? ServiceCategories { get; set; }
     public string? CoverageArea { get; set; }
     public string? ProfilePhotoUrl { get; set; }
+
+    // Evidence of registration consent; versions identify the exact published notices.
+    public DateTime? TermsAcceptedAt { get; set; }
+    public string? TermsVersion { get; set; }
+    public DateTime? PrivacyAcceptedAt { get; set; }
+    public string? PrivacyVersion { get; set; }
+    public bool MarketingConsent { get; set; }
+    public DateTime? MarketingConsentUpdatedAt { get; set; }
 }
