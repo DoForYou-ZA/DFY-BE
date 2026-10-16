@@ -30,7 +30,7 @@ public class ScenarioTests
         var request = new CreateTaskRequest
         {
             TaskName = "Fix the leaking tap",
-            TaskDescription = "Fix the leaking tap",
+            TaskDescription = "Fix the leaking tap in the kitchen",
             Category = "Home",
             Area = "Johannesburg",
             DateNeeded = DateTime.UtcNow.AddDays(2),
