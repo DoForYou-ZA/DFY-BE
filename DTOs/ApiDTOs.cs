@@ -250,6 +250,8 @@ public class GoogleAuthRequest
 {
     [Required, StringLength(10000, MinimumLength = 20)]
     public string IdToken { get; set; } = string.Empty;
+    [StringLength(20)]
+    public string? SecondFactorCode { get; set; }
 }
 
 public class GoogleRegisterRequest
@@ -277,8 +279,8 @@ public class GoogleRegisterRequest
 
 public class TwoFactorSetupRequest
 {
-    [Required, StringLength(72, MinimumLength = 12)]
-    public string CurrentPassword { get; set; } = string.Empty;
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
 }
 
 public class TwoFactorCodeRequest
@@ -289,8 +291,8 @@ public class TwoFactorCodeRequest
 
 public class DisableTwoFactorRequest
 {
-    [Required, StringLength(72, MinimumLength = 12)]
-    public string CurrentPassword { get; set; } = string.Empty;
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
     [Required, StringLength(20, MinimumLength = 6)]
     public string Code { get; set; } = string.Empty;
 }
