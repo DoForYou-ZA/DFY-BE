@@ -22,6 +22,8 @@ public class User
     public string? Roles { get; set; }
     public DateTime? EmailVerificationExpiry { get; set; }
     public DateTime? EmailVerificationSentAt { get; set; }
+    public DateTime? EmailVerificationSendWindowStartAt { get; set; }
+    public int EmailVerificationSendCount { get; set; }
     public string? EmailVerificationToken { get; set; }
     public bool EmailVerified { get; set; }
     public string? PhoneVerificationCode { get; set; }
