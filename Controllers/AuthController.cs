@@ -311,10 +311,6 @@ public class AuthController : ControllerBase
 
         if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
             System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
-            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters with no more than 72 UTF-8 bytes." });
-
-        if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
-            System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters and no more than 72 UTF-8 bytes." });
 
         if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
@@ -337,7 +333,7 @@ public class AuthController : ControllerBase
         if (request == null)
             return BadRequest("Invalid request");
         
-        // Clean email - remove mailto: prefix if present
+        // Normalize the email identifier without accepting URI prefixes.
         var cleanEmail = request.Email?.Trim().ToLowerInvariant();
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail);
         // Perform a hash verification for unknown accounts to reduce timing-based enumeration.
