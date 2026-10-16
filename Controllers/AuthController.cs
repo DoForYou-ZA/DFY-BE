@@ -116,9 +116,9 @@ public class AuthController : ControllerBase
         {
             await SendVerificationEmailAsync(user.Email, verificationToken, HttpContext.RequestAborted);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            _logger.LogWarning(ex, "Registration verification email could not be sent for user {UserId}", user.Id);
+            _logger.LogWarning("Registration verification email could not be sent for user {UserId}", user.Id);
         }
 
         // Do not fire-and-forget work that uses the request-scoped DbContext.
@@ -205,7 +205,7 @@ public class AuthController : ControllerBase
             user.EmailVerificationExpiry = DateTime.UtcNow.AddHours(24);
             await _context.SaveChangesAsync();
             try { await SendVerificationEmailAsync(user.Email, token, HttpContext.RequestAborted); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Verification resend failed for user {UserId}", user.Id); }
+            catch (Exception) { _logger.LogWarning("Verification resend failed for user {UserId}", user.Id); }
         }
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If the account exists and needs verification, an email will be sent shortly." });
@@ -225,7 +225,7 @@ public class AuthController : ControllerBase
             user.PasswordResetExpiry = DateTime.UtcNow.AddMinutes(30);
             await _context.SaveChangesAsync();
             try { await SendPasswordResetEmailAsync(user.Email, token, HttpContext.RequestAborted); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Password reset email could not be sent for user {UserId}", user.Id); }
+            catch (Exception) { _logger.LogWarning("Password reset email could not be sent for user {UserId}", user.Id); }
         }
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If an account matches that email, password reset instructions will be sent shortly." });
