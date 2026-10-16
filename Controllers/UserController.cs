@@ -43,7 +43,9 @@ public class UserController : ControllerBase
             Data = new {
                 id = user.Id, firstName = user.FirstName, lastName = user.LastName, email = user.Email,
                 phoneNumber = user.PhoneNumber, address = user.Address, userType = user.UserType,
-                hasIdNumber = !string.IsNullOrWhiteSpace(user.IdNumber), idNumberLastFour = user.IdNumber != null && user.IdNumber.Length >= 4 ? user.IdNumber[^4..] : null, dateOfBirth = user.DateOfBirth, username = user.Username,
+                hasIdNumber = !string.IsNullOrWhiteSpace(user.IdNumber),
+                idNumberLastFour = user.IdNumber != null && user.IdNumber.Length >= 4 ? user.IdNumber[^4..] : null,
+                username = user.Username,
                 profileCompleted = _userPolicyService.IsProfileComplete(user),
                 profileCompletion = _userPolicyService.GetProfileCompletion(user),
                 missingProfileFields = _userPolicyService.GetMissingProfileFields(user),
@@ -85,28 +87,18 @@ public class UserController : ControllerBase
             : request.UserType.Trim().ToLowerInvariant();
         if (requestedUserType is not ("creator" or "runner" or "both"))
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Invalid user type." });
-        if (!string.IsNullOrWhiteSpace(request.IdNumber) && requestedUserType is not ("runner" or "both"))
-            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Identity details are collected during runner onboarding." });
+        // Full IDs and DOB are high-risk data. Do not accept new identity data through
+        // the general profile API; a dedicated provider-backed and protected runner
+        // verification flow must own collection, consent, retention and access controls.
+        if (!string.IsNullOrWhiteSpace(request.IdNumber) || request.DateOfBirth.HasValue)
+            return Conflict(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "Identity details can only be updated through the dedicated runner verification flow, which is not enabled on this staging release."
+            });
 
         if (!string.IsNullOrWhiteSpace(request.Address) && _userPolicyService.IsPlaceholderAddress(request.Address))
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Please enter a real area or suburb, not a placeholder address." });
-
-        if (!string.IsNullOrWhiteSpace(request.IdNumber))
-        {
-            var id = request.IdNumber.Trim();
-            if (!_userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(id, out var derivedDob))
-                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Enter a valid 13-digit South African ID number for an adult aged 18 or older." });
-            if (await _context.Users.AnyAsync(u => u.Id != user.Id && u.IdNumber == id))
-                return Conflict(new ApiResponse<bool> { Success = false, Message = "We couldn't update these details. Contact support if you believe this is an error." });
-            user.IdNumber = id;
-            user.DateOfBirth = derivedDob;
-        }
-        else if (request.DateOfBirth.HasValue && _userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(user.IdNumber, out var existingDob))
-        {
-            if (request.DateOfBirth.Value.Date != existingDob.Date)
-                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Date of birth must match the date encoded in your ID number." });
-            user.DateOfBirth = existingDob;
-        }
 
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
