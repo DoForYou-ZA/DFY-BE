@@ -138,8 +138,13 @@ public class UserController : ControllerBase
     [HttpPost("validate-id")]
     public ActionResult<ApiResponse<object>> ValidateId([FromBody] ValidateIdRequest request)
     {
-        var valid = _userPolicyService.IsValidSouthAfricanId(request.IdNumber);
-        return Ok(new ApiResponse<object> { Success = valid, Data = new { valid }, Message = valid ? "Valid ID number" : "Invalid ID number" });
+        var valid = _userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(request.IdNumber, out var dateOfBirth);
+        return Ok(new ApiResponse<object>
+        {
+            Success = valid,
+            Data = new { valid, dateOfBirth = valid ? dateOfBirth : (DateTime?)null },
+            Message = valid ? "Valid adult ID number" : "Enter a valid 13-digit South African ID number for an adult aged 18 or older."
+        });
     }
 
     [HttpGet("preferences")]
