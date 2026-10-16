@@ -1206,7 +1206,31 @@ public class AuthController : ControllerBase
         try
         {
             var secret = _authenticatorService.DecryptSecret(user.AuthenticatorSecretEncrypted);
-            return _authenticatorService.VerifyCode(secret, code);
+            if (!_authenticatorService.TryVerifyCode(secret, code, out var matchedStep))
+                return false;
+
+            // Atomically accept only a newer TOTP counter so a copied six-digit
+            // code cannot be replayed by another request or another API instance.
+            if (_context.Database.IsRelational())
+            {
+                var affected = await _context.Users
+                    .Where(u => u.Id == user.Id &&
+                                u.AuthenticatorTwoFactorEnabled &&
+                                (u.LastAuthenticatorTimeStep == null ||
+                                 u.LastAuthenticatorTimeStep < matchedStep))
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(u => u.LastAuthenticatorTimeStep, (long?)matchedStep),
+                        HttpContext.RequestAborted);
+                if (affected != 1) return false;
+            }
+            else if (user.LastAuthenticatorTimeStep.HasValue &&
+                     user.LastAuthenticatorTimeStep.Value >= matchedStep)
+            {
+                return false;
+            }
+
+            user.LastAuthenticatorTimeStep = matchedStep;
+            return true;
         }
         catch (CryptographicException ex)
         {
