@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -107,6 +109,9 @@ public class BankingController : ControllerBase
                 Message = "Bank account already exists."
             });
         }
+
+        if (!await ConsumeSensitiveActionTokenAsync(userId.Value, cancellationToken))
+            return StepUpRequired<object>();
 
         var bankAccount = new BankAccount
         {
@@ -286,6 +291,9 @@ public class BankingController : ControllerBase
         if (user == null)
             return Unauthorized();
 
+        if (!await ConsumeSensitiveActionTokenAsync(userId.Value, cancellationToken))
+            return StepUpRequired<object>();
+
         var verification = await _bankingService.VerifyBankAccountAsync(
             user,
             bankAccount,
@@ -361,6 +369,9 @@ public class BankingController : ControllerBase
             });
         }
 
+        if (!await ConsumeSensitiveActionTokenAsync(userId.Value, cancellationToken))
+            return StepUpRequired<bool>();
+
         await using var transaction = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync(cancellationToken)
             : null;
@@ -425,6 +436,9 @@ public class BankingController : ControllerBase
                 Message = "This account is linked to a payout in progress and cannot be removed yet."
             });
 
+        if (!await ConsumeSensitiveActionTokenAsync(userId.Value, cancellationToken))
+            return StepUpRequired<bool>();
+
         bankAccount.IsActive = false;
         bankAccount.IsDefaultPayout = false;
         await _context.SaveChangesAsync(cancellationToken);
@@ -468,6 +482,50 @@ public class BankingController : ControllerBase
             Data = data
         });
     }
+
+    private async Task<bool> ConsumeSensitiveActionTokenAsync(int userId, CancellationToken cancellationToken)
+    {
+        var token = Request.Headers["X-DFY-Step-Up-Token"].ToString();
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 200)
+            return false;
+
+        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+        var now = DateTime.UtcNow;
+        if (_context.Database.IsRelational())
+        {
+            var affected = await _context.Users
+                .Where(u => u.Id == userId &&
+                            !u.IsArchived &&
+                            u.SensitiveActionTokenHash == tokenHash &&
+                            u.SensitiveActionTokenExpiry != null &&
+                            u.SensitiveActionTokenExpiry > now)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.SensitiveActionTokenHash, (string?)null)
+                    .SetProperty(u => u.SensitiveActionTokenExpiry, (DateTime?)null),
+                    cancellationToken);
+            return affected == 1;
+        }
+
+        var user = await _context.Users.FirstOrDefaultAsync(
+            u => u.Id == userId && !u.IsArchived,
+            cancellationToken);
+        if (user == null ||
+            !string.Equals(user.SensitiveActionTokenHash, tokenHash, StringComparison.Ordinal) ||
+            !user.SensitiveActionTokenExpiry.HasValue ||
+            user.SensitiveActionTokenExpiry.Value <= now)
+            return false;
+
+        user.SensitiveActionTokenHash = null;
+        user.SensitiveActionTokenExpiry = null;
+        await _context.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    private ObjectResult StepUpRequired<T>() => StatusCode(428, new ApiResponse<T>
+    {
+        Success = false,
+        Message = "Recent reauthentication is required for payout settings. Reauthenticate, then retry this one operation with the X-DFY-Step-Up-Token header."
+    });
 
     private int? GetCurrentUserId()
     {
