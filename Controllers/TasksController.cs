@@ -49,9 +49,6 @@ public class TasksController : ControllerBase
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return Unauthorized();
 
-        if (!_userPolicyService.IsProfileComplete(user))
-            return Ok(new ApiResponse<object> { Success = false, Message = "Please complete your profile before creating tasks" });
-
         if (!_userPolicyService.CanCreateTasks(user))
             return StatusCode(StatusCodes.Status403Forbidden,
                 new ApiResponse<object> { Success = false, Message = "Only Creators and Both accounts can post tasks." });
@@ -244,13 +241,7 @@ public class TasksController : ControllerBase
 
         if (currentUser != null)
         {
-            var hasVerifiedPayoutAccount = await _context.BankAccounts.AnyAsync(b =>
-                b.UserId == currentUser.Id &&
-                b.IsActive &&
-                b.IsVerified &&
-                b.ProviderReference != null &&
-                b.ProviderReference != "");
-            var canAccept = _userPolicyService.CanAcceptTasks(currentUser, hasVerifiedPayoutAccount);
+            var canAccept = _userPolicyService.CanAcceptTasks(currentUser);
             foreach (var availableTask in tasks)
                 availableTask.CanAccept = canAccept && availableTask.CreatedByUserId != currentUser.Id;
         }
@@ -382,12 +373,14 @@ public class TasksController : ControllerBase
         if (user == null)
             return Unauthorized();
 
-        if (!_userPolicyService.IsProfileComplete(user))
-            return Ok(new ApiResponse<bool> { Success = false, Message = "Please complete your profile before claiming tasks" });
-
         if (!_userPolicyService.CanAcceptTasks(user))
             return StatusCode(StatusCodes.Status403Forbidden,
-                new ApiResponse<bool> { Success = false, Message = "Only Runners and Both accounts can accept tasks." });
+                new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "RUNNER_ELIGIBILITY_REQUIRED",
+                    Message = "Complete runner identity verification and enable authenticator-based two-factor authentication before accepting paid tasks."
+                });
 
         if (!request.TermsAccepted)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "You must accept the runner terms before accepting a task." });
@@ -410,20 +403,6 @@ public class TasksController : ControllerBase
 
         if (task.PaymentStatus != "EscrowHeld")
             return Conflict(new ApiResponse<bool> { Success = false, Error = "PAYMENT_NOT_SECURED", Message = "This task cannot be accepted until the creator's payment is secured." });
-
-        var hasVerifiedPayoutAccount = await _context.BankAccounts.AnyAsync(b =>
-            b.UserId == userId.Value &&
-            b.IsActive &&
-            b.IsVerified &&
-            b.ProviderReference != null &&
-            b.ProviderReference != "");
-        if (!hasVerifiedPayoutAccount)
-            return Conflict(new ApiResponse<bool>
-            {
-                Success = false,
-                Error = "PAYOUT_BANK_ACCOUNT_REQUIRED",
-                Message = "Add and verify a Paystack bank account in Payout Settings before accepting a task."
-            });
 
         // Relational providers use a conditional update to make the claim atomic.
         var claimedAt = DateTime.UtcNow;
