@@ -5,6 +5,8 @@ using System.Text;
 using System.Security.Claims;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using DoForYou.API.Data;
 using DoForYou.API.Services;
 using DoForYou.API.Services.Background;
@@ -147,6 +149,21 @@ builder.Services.AddSwaggerGen(options =>
         Version = "v1",
         Description = "Canonical HTTP API contract for DFY-FE and dfy-mobile. Business rules remain authoritative in DFY-BE."
     });
+});
+
+// Per-IP throttling for public authentication endpoints.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
 });
 
 // Database
@@ -328,6 +345,8 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseRouting();
+app.UseRateLimiter();
 app.UseCors("AllowFrontend");
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseAuthentication();
