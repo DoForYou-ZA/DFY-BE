@@ -74,4 +74,42 @@ public class UserPolicyServiceTests
         Assert.Contains("address", _policy.GetMissingProfileFields(user));
         Assert.False(_policy.CanCreateTasks(user));
     }
+    [Fact]
+    public void Valid_adult_id_derives_the_encoded_date_of_birth()
+    {
+        var validId = "8001015009087";
+
+        Assert.True(_policy.TryGetAdultDateOfBirthFromSouthAfricanId(validId, out var dateOfBirth));
+        Assert.Equal(new DateTime(1980, 1, 1), dateOfBirth.Date);
+    }
+
+    [Fact]
+    public void Underage_id_is_rejected_even_when_checksum_is_valid()
+    {
+        var underageId = WithValidChecksum("100101500908");
+
+        Assert.False(_policy.TryGetAdultDateOfBirthFromSouthAfricanId(underageId, out _));
+    }
+
+    [Fact]
+    public void Invalid_calendar_date_is_rejected_even_when_checksum_is_valid()
+    {
+        var invalidDateId = WithValidChecksum("801332500908");
+
+        Assert.False(_policy.TryGetAdultDateOfBirthFromSouthAfricanId(invalidDateId, out _));
+    }
+
+    private string WithValidChecksum(string firstTwelveDigits)
+    {
+        Assert.Equal(12, firstTwelveDigits.Length);
+        for (var checkDigit = 0; checkDigit <= 9; checkDigit++)
+        {
+            var candidate = firstTwelveDigits + checkDigit;
+            if (_policy.IsValidSouthAfricanId(candidate))
+                return candidate;
+        }
+
+        throw new InvalidOperationException("Unable to construct a valid checksum test ID.");
+    }
+
 }
