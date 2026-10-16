@@ -5312,11 +5312,16 @@ export interface components {
             password: string;
             phoneNumber: string;
             userType: string;
-            idNumber?: string | null;
+            idNumber: string;
             address: string;
             /** Format: date-time */
             dateOfBirth?: string | null;
             username?: string | null;
+            termsAccepted: boolean;
+            privacyAccepted: boolean;
+            termsVersion: string;
+            privacyVersion: string;
+            marketingConsent?: boolean;
         };
         ReorderRequest: {
             /** Format: int32 */

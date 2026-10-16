@@ -6128,44 +6128,57 @@
           "address",
           "email",
           "firstName",
+          "idNumber",
           "lastName",
           "password",
           "phoneNumber",
+          "privacyAccepted",
+          "privacyVersion",
+          "termsAccepted",
+          "termsVersion",
           "userType"
         ],
         "type": "object",
         "properties": {
           "firstName": {
+            "maxLength": 50,
             "minLength": 1,
             "type": "string"
           },
           "lastName": {
+            "maxLength": 50,
             "minLength": 1,
             "type": "string"
           },
           "email": {
-            "minLength": 1,
+            "maxLength": 254,
+            "minLength": 0,
             "type": "string",
             "format": "email"
           },
           "password": {
-            "minLength": 1,
+            "maxLength": 72,
+            "minLength": 12,
             "type": "string"
           },
           "phoneNumber": {
-            "minLength": 1,
+            "maxLength": 20,
+            "minLength": 0,
             "type": "string"
           },
           "userType": {
-            "minLength": 1,
+            "maxLength": 10,
+            "minLength": 0,
             "type": "string"
           },
           "idNumber": {
-            "type": "string",
-            "nullable": true
+            "minLength": 1,
+            "pattern": "^[0-9]{13}$",
+            "type": "string"
           },
           "address": {
-            "minLength": 1,
+            "maxLength": 200,
+            "minLength": 2,
             "type": "string"
           },
           "dateOfBirth": {
@@ -6174,8 +6187,29 @@
             "nullable": true
           },
           "username": {
+            "maxLength": 80,
+            "minLength": 0,
             "type": "string",
             "nullable": true
+          },
+          "termsAccepted": {
+            "type": "boolean"
+          },
+          "privacyAccepted": {
+            "type": "boolean"
+          },
+          "termsVersion": {
+            "maxLength": 40,
+            "minLength": 0,
+            "type": "string"
+          },
+          "privacyVersion": {
+            "maxLength": 40,
+            "minLength": 0,
+            "type": "string"
+          },
+          "marketingConsent": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
