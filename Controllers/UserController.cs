@@ -72,8 +72,21 @@ public class UserController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "First name and last name are required." });
 
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !_userPolicyService.IsValidPhone(request.PhoneNumber))
-            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Enter a valid South African phone number." });
+        string? normalizedPhone = null;
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
+        {
+            normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
+            if (normalizedPhone == null)
+                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Enter a valid South African phone number." });
+        }
+
+        var requestedUserType = string.IsNullOrWhiteSpace(request.UserType)
+            ? user.UserType.Trim().ToLowerInvariant()
+            : request.UserType.Trim().ToLowerInvariant();
+        if (requestedUserType is not ("creator" or "runner" or "both"))
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Invalid user type." });
+        if (!string.IsNullOrWhiteSpace(request.IdNumber) && requestedUserType is not ("runner" or "both"))
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Identity details are collected during runner onboarding." });
 
         if (!string.IsNullOrWhiteSpace(request.Address) && _userPolicyService.IsPlaceholderAddress(request.Address))
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Please enter a real area or suburb, not a placeholder address." });
@@ -97,17 +110,17 @@ public class UserController : ControllerBase
 
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber)) user.PhoneNumber = request.PhoneNumber.Trim();
+        if (normalizedPhone != null && !string.Equals(user.PhoneNumber, normalizedPhone, StringComparison.Ordinal))
+        {
+            user.PhoneNumber = normalizedPhone;
+            // A changed contact number cannot inherit an earlier phone-verification state.
+            user.PhoneVerified = false;
+        }
         if (!string.IsNullOrWhiteSpace(request.Address)) user.Address = request.Address.Trim();
         if (!string.IsNullOrWhiteSpace(request.Username)) user.Username = request.Username.Trim();
 
         if (!string.IsNullOrWhiteSpace(request.UserType))
-        {
-            var type = request.UserType.Trim().ToLowerInvariant();
-            if (type is not ("creator" or "runner" or "both"))
-                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Invalid user type." });
-            user.UserType = type;
-        }
+            user.UserType = requestedUserType;
 
         user.ProfileCompleted = _userPolicyService.IsProfileComplete(user);
         await _context.SaveChangesAsync();
@@ -190,6 +203,18 @@ public class UserController : ControllerBase
         user.ProfileCompleted = _userPolicyService.IsProfileComplete(user);
         await _context.SaveChangesAsync();
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Preferences updated successfully" });
+    }
+
+    private static string? NormalizeSouthAfricanPhone(string value)
+    {
+        var digits = new string(value.Where(char.IsDigit).ToArray());
+        if (digits.Length == 11 && digits.StartsWith("27", StringComparison.Ordinal))
+            digits = "0" + digits[2..];
+        else if (digits.Length == 9 && digits[0] is >= '6' and <= '8')
+            digits = "0" + digits;
+        return digits.Length == 10 && digits[0] == '0' && digits[1] is >= '6' and <= '8'
+            ? digits
+            : null;
     }
 
     private int? GetCurrentUserId()
