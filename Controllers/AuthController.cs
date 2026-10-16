@@ -164,7 +164,7 @@ public class AuthController : ControllerBase
                 LastLoginAt = user.LastLoginAt,
                 IsVerified = user.IsVerified
             },
-            Message = "Registration successful"
+            Message = "Registration successful. Check your email for a verification link before signing in."
         });
     }
 
@@ -250,6 +250,7 @@ public class AuthController : ControllerBase
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.EmailVerified = true;
         user.PasswordResetTokenHash = null;
         user.PasswordResetExpiry = null;
         user.EmailVerificationToken = null;
