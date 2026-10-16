@@ -14,6 +14,7 @@ public interface IUserPolicyService
     IReadOnlyList<string> GetMissingProfileFields(User user);
     bool CanCreateTasks(User user);
     bool CanAcceptTasks(User user);
+    bool CanReceivePayout(User user);
     bool IsValidPhone(string value);
     bool IsPlaceholderAddress(string? value);
     bool IsValidSouthAfricanId(string? value);
@@ -75,6 +76,17 @@ public sealed class UserPolicyService : IUserPolicyService
         !user.IsArchived &&
         user.EmailVerified &&
         (NormalizeUserType(user.UserType) is "runner" or "both") &&
+        string.Equals(user.IdentityVerificationStatus, "passed", StringComparison.OrdinalIgnoreCase) &&
+        user.AuthenticatorTwoFactorEnabled;
+
+    /// <summary>
+    /// Re-evaluated before a queued payout is first submitted. It intentionally does
+    /// not depend on current role preference: changing preference must not erase an
+    /// already-earned financial obligation, but a missing identity/2FA gate holds funds.
+    /// </summary>
+    public bool CanReceivePayout(User user) =>
+        !user.IsArchived &&
+        user.EmailVerified &&
         string.Equals(user.IdentityVerificationStatus, "passed", StringComparison.OrdinalIgnoreCase) &&
         user.AuthenticatorTwoFactorEnabled;
 
