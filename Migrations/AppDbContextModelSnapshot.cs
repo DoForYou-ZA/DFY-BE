@@ -1022,6 +1022,12 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("SecurityStamp")
                         .HasColumnType("text");
 
+                    b.Property<string>("SensitiveActionTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SensitiveActionTokenExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<decimal>("Rating")
                         .HasColumnType("numeric");
 
