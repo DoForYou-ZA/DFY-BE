@@ -250,7 +250,10 @@ public class PaymentController : ControllerBase
         }
 
         // Idempotent task activation.
-        if (task.PaymentStatus != "EscrowHeld" || task.TaskStatus == "PendingPayment")
+        // A verified charge may only advance a task that is still awaiting its
+        // first payment. Replayed success events must not resurrect cancelled
+        // or refunded tasks.
+        if (task.TaskStatus == "PendingPayment")
         {
             task.PaymentStatus = "EscrowHeld";
             task.TaskStatus = "Posted";

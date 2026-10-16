@@ -244,7 +244,13 @@ public class TasksController : ControllerBase
 
         if (currentUser != null)
         {
-            var canAccept = _userPolicyService.CanAcceptTasks(currentUser);
+            var hasVerifiedPayoutAccount = await _context.BankAccounts.AnyAsync(b =>
+                b.UserId == currentUser.Id &&
+                b.IsActive &&
+                b.IsVerified &&
+                b.ProviderReference != null &&
+                b.ProviderReference != "");
+            var canAccept = _userPolicyService.CanAcceptTasks(currentUser, hasVerifiedPayoutAccount);
             foreach (var availableTask in tasks)
                 availableTask.CanAccept = canAccept && availableTask.CreatedByUserId != currentUser.Id;
         }
@@ -744,8 +750,15 @@ public class TasksController : ControllerBase
                 return Ok(new ApiResponse<object> { Success = false, Message = "Date needed must be more than 30 minutes and no more than 365 days in the future." });
             task.DateNeeded = dateNeeded;
         }
-        if (request.Budget.HasValue && request.Budget.Value >= 50)
+        if (request.Budget.HasValue)
         {
+            if (request.Budget.Value < 50 || request.Budget.Value > 100000)
+                return BadRequest(new ApiResponse<object> { Success = false, Message = "Budget must be between R50 and R100,000." });
+
+            var hasPaymentAttempt = await _context.PaymentAttempts.AnyAsync(p => p.TaskId == task.Id);
+            if (hasPaymentAttempt)
+                return Conflict(new ApiResponse<object> { Success = false, Message = "The task budget cannot be changed after checkout has been created. Cancel this task and create a new one." });
+
             task.Budget = decimal.Round(request.Budget.Value, 2, MidpointRounding.AwayFromZero);
             var commission = _escrowService.CalculateCommission(task.Budget);
             task.CommissionAmount = commission;
