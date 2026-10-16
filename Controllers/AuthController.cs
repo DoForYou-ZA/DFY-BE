@@ -405,8 +405,9 @@ public class AuthController : ControllerBase
     private string GetPublicFrontendUrl()
     {
         var value = Environment.GetEnvironmentVariable("DFY_PUBLIC_URL")
-            ?? _configuration["Frontend:BaseUrl"]
-            ?? "https://dfy-fe-staging.onrender.com";
+            ?? _configuration["Frontend:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(value))
+            throw new InvalidOperationException("DFY_PUBLIC_URL or Frontend:BaseUrl must be configured for account emails.");
         return value.TrimEnd('/');
     }
 
