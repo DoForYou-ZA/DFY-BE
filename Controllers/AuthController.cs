@@ -234,7 +234,7 @@ public class AuthController : ControllerBase
     [EnableRateLimiting("auth")]
     [HttpPost("reset-password")]
     [AllowAnonymous]
-    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequest request)
+    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] AccountResetPasswordRequest request)
     {
         if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
             Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
