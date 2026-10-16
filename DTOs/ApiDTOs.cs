@@ -268,7 +268,7 @@ public class ForgotPasswordRequest
     public string Email { get; set; } = string.Empty;
 }
 
-public class ResetPasswordRequest
+public class AccountResetPasswordRequest
 {
     [Required, StringLength(200)]
     public string Token { get; set; } = string.Empty;
