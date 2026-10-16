@@ -5971,10 +5971,12 @@
         "properties": {
           "currentPassword": {
             "minLength": 1,
+            "maxLength": 72,
             "type": "string"
           },
           "newPassword": {
-            "minLength": 6,
+            "minLength": 12,
+            "maxLength": 72,
             "type": "string"
           }
         },
