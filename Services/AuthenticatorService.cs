@@ -89,8 +89,8 @@ public sealed class AuthenticatorService(IConfiguration configuration) : IAuthen
     public bool VerifyCode(string secret, string? code, DateTimeOffset? now = null)
     {
         if (string.IsNullOrWhiteSpace(code)) return false;
-        var normalized = new string(code.Where(char.IsAsciiDigit).ToArray());
-        if (normalized.Length != Digits) return false;
+        if (code.Length != Digits || !code.All(char.IsAsciiDigit)) return false;
+        var normalized = code;
 
         byte[] key;
         try { key = Base32Decode(secret); }
