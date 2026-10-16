@@ -27,7 +27,7 @@ The SMTP account must be authorized to send from `SMTP_FROM`. Verify delivery, s
 - `POST /api/v1/auth/login`: denies non-admin users whose email is not verified.
 - `POST /api/v1/auth/change-password`: requires the current password and rotates the security stamp.
 
-A successful password change or reset invalidates existing JWTs. Users must sign in again. Verification and reset tokens are consumed with conditional database updates so a token replay race cannot consume the same token twice. Verification/reset email sends have a two-minute per-account cooldown in addition to the per-IP auth rate limit. Email verification is not proof of phone ownership or identity; phone OTP and KYC are separate follow-up work.
+A successful password change or reset invalidates existing JWTs. Users must sign in again. Verification and reset tokens are consumed with conditional database updates so a token replay race cannot consume the same token twice. Verification resends are limited to one send per 60 seconds and five sends in a rolling 24-hour window per account, including the initial verification email. Auth endpoints also use per-IP rate limiting. Email verification is not proof of phone ownership or identity; phone OTP and KYC are separate follow-up work.
 
 ## Staging rollout checklist
 
@@ -45,5 +45,5 @@ A successful password change or reset invalidates existing JWTs. Users must sign
 - The current database still stores existing ID numbers as plaintext. Profile API responses are minimized, but field-level encryption/HMAC-based uniqueness needs a reviewed data migration and a managed key before claiming at-rest encryption.
 - Case-insensitive email and ID uniqueness are currently checked in application code; database unique constraints must follow a staging duplicate audit.
 - Browser access tokens are still stored in localStorage and therefore remain accessible to same-origin JavaScript; migrating the website to HttpOnly cookies requires coordinated CSRF/CORS changes and must not be mixed into this release.
-- SMS OTP, phone verification enforcement, identity/KYC verification, a revocable refresh-token family, and distributed rate limiting are not implemented by this change.
+- Google sign-in/account linking, authenticator-based TOTP enrollment/challenge, identity/liveness provider integration, email-change flow, a revocable refresh-token family, and distributed rate limiting are not implemented by this change. Runner acceptance is denied until the identity status is `passed` and authenticator 2FA is enabled; staging does not yet provide the setup flows.
 - SMTP delivery is not operational until the staging service is configured with a provider's credentials.
