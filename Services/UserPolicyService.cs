@@ -18,6 +18,7 @@ public interface IUserPolicyService
     bool IsValidPhone(string value);
     bool IsPlaceholderAddress(string? value);
     bool IsValidSouthAfricanId(string? value);
+    bool TryGetAdultDateOfBirthFromSouthAfricanId(string? value, out DateTime dateOfBirth);
 }
 
 public sealed class UserPolicyService : IUserPolicyService
@@ -88,7 +89,7 @@ public sealed class UserPolicyService : IUserPolicyService
 
     public bool IsValidSouthAfricanId(string? value)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Length != 13 || !value.All(char.IsDigit))
+        if (string.IsNullOrWhiteSpace(value) || value.Length != 13 || !value.All(char.IsAsciiDigit))
             return false;
 
         var sum = 0;
@@ -104,5 +105,43 @@ public sealed class UserPolicyService : IUserPolicyService
         }
 
         return sum % 10 == 0;
+    }
+
+    /// <summary>
+    /// Derives a plausible adult date from YYMMDD. Checksum success is not proof
+    /// of identity or ownership. The 110-year ceiling prevents an underage YY
+    /// from being silently interpreted as a century-old birth.
+    /// </summary>
+    public bool TryGetAdultDateOfBirthFromSouthAfricanId(string? value, out DateTime dateOfBirth)
+    {
+        dateOfBirth = default;
+        if (!IsValidSouthAfricanId(value)) return false;
+
+        var yy = int.Parse(value!.Substring(0, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var month = int.Parse(value.Substring(2, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var day = int.Parse(value.Substring(4, 2), System.Globalization.CultureInfo.InvariantCulture);
+        var today = DateTime.UtcNow.Date;
+        var currentCenturyYear = (today.Year / 100) * 100 + yy;
+
+        foreach (var year in new[] { currentCenturyYear, currentCenturyYear - 100 })
+        {
+            try
+            {
+                var dob = new DateTime(year, month, day, 0, 0, 0, DateTimeKind.Utc);
+                var age = today.Year - dob.Year;
+                if (dob.Date > today.AddYears(-age)) age--;
+                if (age >= 18 && age <= 110 && dob.Date <= today)
+                {
+                    dateOfBirth = dob;
+                    return true;
+                }
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return false;
+            }
+        }
+
+        return false;
     }
 }
