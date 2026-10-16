@@ -254,6 +254,12 @@ public class GoogleAuthRequest
     public string? SecondFactorCode { get; set; }
 }
 
+public class GoogleLinkRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+}
+
 public class GoogleRegisterRequest
 {
     [Required, StringLength(10000, MinimumLength = 20)]
@@ -329,6 +335,7 @@ public class AuthResponse
     public bool Success { get; set; }
     public bool RequiresTwoFactor { get; set; }
     public bool RequiresAccountSetup { get; set; }
+    public bool RequiresAccountLink { get; set; }
     public string? Token { get; set; }
     public UserDto? User { get; set; }
     public string? Message { get; set; }
