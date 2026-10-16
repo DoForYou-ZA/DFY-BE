@@ -6104,6 +6104,7 @@ export interface components {
             /** Format: date-time */
             lastLoginAt?: string | null;
             isVerified?: boolean;
+            hasPasswordLogin?: boolean;
             emailVerified?: boolean;
             phoneVerified?: boolean;
             identityVerificationStatus?: string | null;
