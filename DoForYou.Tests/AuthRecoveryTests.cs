@@ -114,7 +114,8 @@ public class AuthRecoveryTests
         {
             ["Jwt:Key"] = "test-signing-key-that-is-at-least-32-characters-long",
             ["Jwt:Issuer"] = "DoForYou",
-            ["Jwt:Audience"] = "DoForYou"
+            ["Jwt:Audience"] = "DoForYou",
+            ["Frontend:BaseUrl"] = "https://dfy-fe-staging.onrender.com"
         };
         var controller = new AuthController(
             context,
