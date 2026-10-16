@@ -27,19 +27,6 @@ public class AppDbContext : DbContext
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<Testimonial> Testimonials { get; set; }
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        base.OnModelCreating(modelBuilder);
-        modelBuilder.Entity<User>()
-            .HasIndex(user => user.NormalizedEmail)
-            .IsUnique()
-            .HasDatabaseName("IX_Users_NormalizedEmail");
-        modelBuilder.Entity<User>()
-            .HasIndex(user => user.GoogleSubject)
-            .IsUnique()
-            .HasDatabaseName("IX_Users_GoogleSubject");
-    }
-
     public override int SaveChanges()
     {
         NormalizeUserEmails();
@@ -78,6 +65,16 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_NormalizedEmail");
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.GoogleSubject)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_GoogleSubject");
+
         modelBuilder.Entity<Models.Task>()
             .HasQueryFilter(t => !t.IsDeleted);
         modelBuilder.Entity<Models.Task>()
