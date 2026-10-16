@@ -176,6 +176,7 @@ builder.Services.AddScoped<IEscrowService, EscrowService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IBankingService, BankingService>();
 builder.Services.AddScoped<IUserPolicyService, UserPolicyService>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EscrowReleaseService>();
 
 // SignalR
@@ -220,10 +221,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                var isActive = await db.Users.AsNoTracking()
-                    .AnyAsync(u => u.Id == userId && !u.IsArchived, context.HttpContext.RequestAborted);
-                if (!isActive)
+                var account = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.IsArchived, u.EmailVerified, u.Roles, u.SecurityStamp })
+                    .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+                if (account == null || account.IsArchived)
+                {
                     context.Fail("The account is archived or no longer active.");
+                    return;
+                }
+
+                var isAdmin = account.Roles?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(role => string.Equals(role.Trim(), "Admin", StringComparison.OrdinalIgnoreCase)) == true;
+                if (!isAdmin && !account.EmailVerified)
+                {
+                    context.Fail("Email verification is required.");
+                    return;
+                }
+
+                var tokenStamp = context.Principal?.FindFirst("security_stamp")?.Value;
+                if (!string.Equals(tokenStamp, account.SecurityStamp, StringComparison.Ordinal))
+                    context.Fail("The session has been revoked. Please sign in again.");
             }
         };
     });
