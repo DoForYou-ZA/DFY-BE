@@ -104,6 +104,7 @@ public class AuthController : ControllerBase
             MarketingConsentUpdatedAt = request.MarketingConsent ? now : null,
             EmailVerificationToken = HashToken(verificationToken),
             EmailVerificationExpiry = now.AddHours(24),
+            EmailVerificationSentAt = now,
             SecurityStamp = CreateSecureToken(),
             Roles = "User",
             CreatedAt = now
@@ -196,6 +197,7 @@ public class AuthController : ControllerBase
                     .SetProperty(u => u.EmailVerified, true)
                     .SetProperty(u => u.EmailVerificationToken, (string?)null)
                     .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
+                    .SetProperty(u => u.EmailVerificationSentAt, (DateTime?)null)
                     .SetProperty(u => u.SecurityStamp, newSecurityStamp),
                     HttpContext.RequestAborted);
             if (affected == 0)
@@ -206,6 +208,7 @@ public class AuthController : ControllerBase
             user.EmailVerified = true;
             user.EmailVerificationToken = null;
             user.EmailVerificationExpiry = null;
+            user.EmailVerificationSentAt = null;
             user.SecurityStamp = newSecurityStamp;
             await _context.SaveChangesAsync();
         }
@@ -220,11 +223,14 @@ public class AuthController : ControllerBase
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
-        if (user != null && !user.EmailVerified)
+        var now = DateTime.UtcNow;
+        if (user != null && !user.EmailVerified &&
+            (!user.EmailVerificationSentAt.HasValue || user.EmailVerificationSentAt.Value <= now.AddMinutes(-2)))
         {
             var token = CreateSecureToken();
             user.EmailVerificationToken = HashToken(token);
-            user.EmailVerificationExpiry = DateTime.UtcNow.AddHours(24);
+            user.EmailVerificationExpiry = now.AddHours(24);
+            user.EmailVerificationSentAt = now;
             await _context.SaveChangesAsync();
             try { await SendVerificationEmailAsync(user.Email, token, HttpContext.RequestAborted); }
             catch (Exception) { _logger.LogWarning("Verification resend failed for user {UserId}", user.Id); }
@@ -240,11 +246,14 @@ public class AuthController : ControllerBase
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
-        if (user != null)
+        var now = DateTime.UtcNow;
+        if (user != null &&
+            (!user.PasswordResetSentAt.HasValue || user.PasswordResetSentAt.Value <= now.AddMinutes(-2)))
         {
             var token = CreateSecureToken();
             user.PasswordResetTokenHash = HashToken(token);
-            user.PasswordResetExpiry = DateTime.UtcNow.AddMinutes(30);
+            user.PasswordResetExpiry = now.AddMinutes(30);
+            user.PasswordResetSentAt = now;
             await _context.SaveChangesAsync();
             try { await SendPasswordResetEmailAsync(user.Email, token, HttpContext.RequestAborted); }
             catch (Exception) { _logger.LogWarning("Password reset email could not be sent for user {UserId}", user.Id); }
@@ -287,8 +296,10 @@ public class AuthController : ControllerBase
                     .SetProperty(u => u.EmailVerified, true)
                     .SetProperty(u => u.PasswordResetTokenHash, (string?)null)
                     .SetProperty(u => u.PasswordResetExpiry, (DateTime?)null)
+                    .SetProperty(u => u.PasswordResetSentAt, (DateTime?)null)
                     .SetProperty(u => u.EmailVerificationToken, (string?)null)
                     .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
+                    .SetProperty(u => u.EmailVerificationSentAt, (DateTime?)null)
                     .SetProperty(u => u.SecurityStamp, newSecurityStamp),
                     HttpContext.RequestAborted);
             if (affected == 0)
@@ -300,8 +311,10 @@ public class AuthController : ControllerBase
             user.EmailVerified = true;
             user.PasswordResetTokenHash = null;
             user.PasswordResetExpiry = null;
+            user.PasswordResetSentAt = null;
             user.EmailVerificationToken = null;
             user.EmailVerificationExpiry = null;
+            user.EmailVerificationSentAt = null;
             user.SecurityStamp = newSecurityStamp;
             await _context.SaveChangesAsync();
         }
