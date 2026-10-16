@@ -214,7 +214,7 @@ public class RegisterRequest
     public string Email { get; set; } = string.Empty;
 
     // Passwords are deliberately not trimmed or normalized.
-    [Required, StringLength(128, MinimumLength = 12)]
+    [Required, StringLength(72, MinimumLength = 12)]
     public string Password { get; set; } = string.Empty;
 
     [Required, StringLength(20)]
