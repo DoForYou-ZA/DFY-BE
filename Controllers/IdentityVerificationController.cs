@@ -136,7 +136,8 @@ public sealed class IdentityVerificationController(
         }
 
         if (user.IdentityVerificationHandoffTokenHash != null &&
-            user.IdentityVerificationHandoffExpiry > now)
+            user.IdentityVerificationHandoffExpiry.HasValue &&
+            user.IdentityVerificationHandoffExpiry.Value > now)
         {
             return Conflict(new ApiResponse<object>
             {
@@ -299,29 +300,62 @@ public sealed class IdentityVerificationController(
         }
 
         var startedAt = DateTime.UtcNow;
-        var affected = await context.Users
-            .Where(u => u.Id == user.Id &&
+        var affected = 0;
+        if (context.Database.IsRelational())
+        {
+            affected = await context.Users
+                .Where(u => u.Id == user.Id &&
+                    u.IdentityVerificationHandoffTokenHash == handoffHash &&
+                    u.IdentityVerificationHandoffExpiry != null &&
+                    u.IdentityVerificationHandoffExpiry > startedAt &&
+                    !u.IsArchived &&
+                    u.EmailVerified &&
+                    (u.UserType.ToLower() == "runner" || u.UserType.ToLower() == "both") &&
+                    (u.IdentityVerificationStatus == "not_started" ||
+                     u.IdentityVerificationStatus == "failed" ||
+                     u.IdentityVerificationStatus == "expired"))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.IdentityVerificationHandoffTokenHash, (string?)null)
+                    .SetProperty(u => u.IdentityVerificationHandoffExpiry, (DateTime?)null)
+                    .SetProperty(u => u.IdentityVerificationProvider, "Sumsub")
+                    .SetProperty(u => u.IdentityVerificationExternalUserId, externalUserId)
+                    .SetProperty(u => u.IdentityVerificationApplicantId, (string?)null)
+                    .SetProperty(u => u.IdentityVerificationStatus, "pending")
+                    .SetProperty(u => u.IdentityVerificationStartedAt, startedAt)
+                    .SetProperty(u => u.IdentityVerificationUpdatedAt, startedAt)
+                    .SetProperty(u => u.IdentityVerificationLastEventAt, (DateTime?)null),
+                    cancellationToken);
+        }
+        else
+        {
+            var trackedUser = await context.Users.FirstOrDefaultAsync(u =>
+                u.Id == user.Id &&
                 u.IdentityVerificationHandoffTokenHash == handoffHash &&
                 u.IdentityVerificationHandoffExpiry != null &&
                 u.IdentityVerificationHandoffExpiry > startedAt &&
                 !u.IsArchived &&
                 u.EmailVerified &&
-                (u.IdentityVerificationStatus == "not_started" ||
-                 u.IdentityVerificationStatus == "failed" ||
-                 u.IdentityVerificationStatus == "expired"))
-            .ExecuteUpdateAsync(setters => setters
-                .SetProperty(u => u.IdentityVerificationHandoffTokenHash, (string?)null)
-                .SetProperty(u => u.IdentityVerificationHandoffExpiry, (DateTime?)null)
-                .SetProperty(u => u.IdentityVerificationProvider, "Sumsub")
-                .SetProperty(u => u.IdentityVerificationExternalUserId, externalUserId)
-                .SetProperty(u => u.IdentityVerificationApplicantId, (string?)null)
-                .SetProperty(u => u.IdentityVerificationStatus, "pending")
-                .SetProperty(u => u.IdentityVerificationStartedAt, startedAt)
-                .SetProperty(u => u.IdentityVerificationUpdatedAt, startedAt)
-                .SetProperty(u => u.IdentityVerificationLastEventAt, (DateTime?)null),
+                IsRunnerPreference(u.UserType) &&
+                CanRestart(u.IdentityVerificationStatus),
                 cancellationToken);
+            if (trackedUser != null)
+            {
+                trackedUser.IdentityVerificationHandoffTokenHash = null;
+                trackedUser.IdentityVerificationHandoffExpiry = null;
+                trackedUser.IdentityVerificationProvider = "Sumsub";
+                trackedUser.IdentityVerificationExternalUserId = externalUserId;
+                trackedUser.IdentityVerificationApplicantId = null;
+                trackedUser.IdentityVerificationStatus = "pending";
+                trackedUser.IdentityVerificationStartedAt = startedAt;
+                trackedUser.IdentityVerificationUpdatedAt = startedAt;
+                trackedUser.IdentityVerificationLastEventAt = null;
+                affected = await context.SaveChangesAsync(cancellationToken);
+                // The update's affected row count is the user row; the tracked provider
+                // returns a total SaveChanges count, which includes only this row here.
+            }
+        }
 
-        if (affected != 1)
+        if (affected < 1)
         {
             // A concurrent exchange consumed the code. Do not return an unused token.
             return BadRequest(new ApiResponse<object>
