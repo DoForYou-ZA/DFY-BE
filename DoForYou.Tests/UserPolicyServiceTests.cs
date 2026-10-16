@@ -14,10 +14,10 @@ public class UserPolicyServiceTests
         Email = "creator@example.com",
         EmailVerified = true,
         PhoneNumber = "0821234567",
-        Address = "Sandton",
-        IdNumber = "8001015009087",
-        DateOfBirth = new DateTime(1980, 1, 1),
-        UserType = userType
+        UserType = userType,
+        IdentityVerificationStatus = "passed",
+        AuthenticatorTwoFactorEnabled = true
+        // Address, ID and DOB are intentionally absent: none is a basic signup field.
     };
 
     [Theory]
@@ -27,7 +27,7 @@ public class UserPolicyServiceTests
     [InlineData("Runner", false, true)]
     [InlineData("both", true, true)]
     [InlineData("Both", true, true)]
-    public void Complete_user_gets_only_backend_allowed_capabilities(
+    public void Capabilities_follow_preference_and_independent_verification(
         string userType,
         bool canCreate,
         bool canAccept)
@@ -42,43 +42,92 @@ public class UserPolicyServiceTests
     }
 
     [Fact]
-    public void Incomplete_both_user_cannot_create_or_accept()
+    public void Creator_capability_does_not_require_address_ID_or_DOB()
     {
         var user = CompleteUser("both");
-        user.Address = "just around";
+        user.Address = null;
+        user.IdNumber = null;
+        user.DateOfBirth = null;
 
-        Assert.False(_policy.IsProfileComplete(user));
-        Assert.Equal(89, _policy.GetProfileCompletion(user));
-        Assert.Contains("address", _policy.GetMissingProfileFields(user));
-        Assert.False(_policy.CanCreateTasks(user));
-        Assert.False(_policy.CanAcceptTasks(user));
+        Assert.True(_policy.CanCreateTasks(user));
+        Assert.True(_policy.CanAcceptTasks(user));
     }
 
     [Fact]
-    public void Invalid_id_is_reported_as_missing()
-    {
-        var user = CompleteUser("runner");
-        user.IdNumber = "1234567890123";
-
-        Assert.False(_policy.IsProfileComplete(user));
-        Assert.Contains("idNumber", _policy.GetMissingProfileFields(user));
-        Assert.False(_policy.CanAcceptTasks(user));
-    }
-
-    [Fact]
-    public void Placeholder_address_is_not_accepted()
+    public void Profile_completion_is_informational_and_does_not_gate_creator_capability()
     {
         var user = CompleteUser("creator");
-        user.Address = "near me";
+        user.FirstName = "";
 
         Assert.False(_policy.IsProfileComplete(user));
-        Assert.Contains("address", _policy.GetMissingProfileFields(user));
-        Assert.False(_policy.CanCreateTasks(user));
+        Assert.Contains("firstName", _policy.GetMissingProfileFields(user));
+        Assert.True(_policy.CanCreateTasks(user));
     }
+
+    [Fact]
+    public void Runner_cannot_accept_without_passed_identity_and_authenticator_2FA()
+    {
+        var user = CompleteUser("runner");
+        user.IdentityVerificationStatus = "not_started";
+        user.AuthenticatorTwoFactorEnabled = false;
+
+        Assert.False(_policy.CanAcceptTasks(user));
+
+        user.IdentityVerificationStatus = "passed";
+        Assert.False(_policy.CanAcceptTasks(user));
+
+        user.IdentityVerificationStatus = "pending";
+        user.AuthenticatorTwoFactorEnabled = true;
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
+    [Fact]
+    public void Passed_runner_identity_and_2FA_are_independent_of_profile_address_ID_and_payout_setup()
+    {
+        var user = CompleteUser("runner");
+        user.Address = null;
+        user.IdNumber = null;
+        user.DateOfBirth = null;
+
+        Assert.True(_policy.CanAcceptTasks(user));
+    }
+
+    [Fact]
+    public void Selecting_both_does_not_grant_runner_eligibility()
+    {
+        var user = CompleteUser("creator");
+        user.IdentityVerificationStatus = "not_started";
+        user.AuthenticatorTwoFactorEnabled = false;
+        user.UserType = "both";
+
+        Assert.True(_policy.CanCreateTasks(user));
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
+    [Fact]
+    public void Unverified_email_cannot_enable_task_capabilities()
+    {
+        var user = CompleteUser("both");
+        user.EmailVerified = false;
+
+        Assert.False(_policy.CanCreateTasks(user));
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
+    [Fact]
+    public void Archived_account_cannot_use_task_capabilities()
+    {
+        var user = CompleteUser("both");
+        user.IsArchived = true;
+
+        Assert.False(_policy.CanCreateTasks(user));
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
     [Fact]
     public void Valid_adult_id_derives_the_encoded_date_of_birth()
     {
-        var validId = "8001015009087";
+        const string validId = "8001015009087";
 
         Assert.True(_policy.TryGetAdultDateOfBirthFromSouthAfricanId(validId, out var dateOfBirth));
         Assert.Equal(new DateTime(1980, 1, 1), dateOfBirth.Date);
@@ -112,27 +161,4 @@ public class UserPolicyServiceTests
 
         throw new InvalidOperationException("Unable to construct a valid checksum test ID.");
     }
-
-    [Fact]
-    public void Unverified_email_cannot_enable_task_capabilities()
-    {
-        var user = CompleteUser("both");
-        user.EmailVerified = false;
-
-        Assert.False(_policy.CanCreateTasks(user));
-        Assert.False(_policy.CanAcceptTasks(user));
-    }
-
-    [Fact]
-    public void DOB_must_match_the_valid_adult_id()
-    {
-        var user = CompleteUser("both");
-        user.DateOfBirth = new DateTime(1981, 1, 1);
-
-        Assert.False(_policy.IsProfileComplete(user));
-        Assert.Contains("dateOfBirth", _policy.GetMissingProfileFields(user));
-        Assert.False(_policy.CanCreateTasks(user));
-        Assert.False(_policy.CanAcceptTasks(user));
-    }
-
 }
