@@ -983,6 +983,12 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("IdentityVerificationHandoffExpiry")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("IdentityVerificationAttemptWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("IdentityVerificationAttemptCount")
+                        .HasColumnType("integer");
+
                     b.Property<bool>("IsAvailable")
                         .HasColumnType("boolean");
 
