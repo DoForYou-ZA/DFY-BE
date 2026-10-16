@@ -14,7 +14,6 @@ using DoForYou.API.Models;
 using DoForYou.API.Services;
 using BCrypt.Net;
 using Google.Apis.Auth;
-using Microsoft.EntityFrameworkCore;
 
 namespace DoForYou.API.Controllers;
 
@@ -383,6 +382,293 @@ public class AuthController : ControllerBase
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password reset successfully. Please sign in with your new password." });
     }
 
+    [EnableRateLimiting("auth")]
+    [HttpPost("google")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> GoogleLogin([FromBody] GoogleAuthRequest request)
+    {
+        var googlePayload = await ValidateGoogleIdTokenAsync(request.IdToken);
+        if (googlePayload == null || googlePayload.EmailVerified != true ||
+            string.IsNullOrWhiteSpace(googlePayload.Subject) ||
+            string.IsNullOrWhiteSpace(googlePayload.Email))
+            return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be verified. Please try again." });
+
+        var normalizedEmail = googlePayload.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            u.GoogleSubject == googlePayload.Subject ||
+            u.NormalizedEmail == normalizedEmail ||
+            (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail));
+        if (user == null)
+            return Conflict(new AuthResponse
+            {
+                Success = false,
+                RequiresAccountSetup = true,
+                Message = "Choose an account type and complete the signup form to create your DoForYou account."
+            });
+        if (user.IsArchived)
+            return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be completed for this account." });
+        if (!string.IsNullOrWhiteSpace(user.GoogleSubject) &&
+            !string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
+            return Conflict(new AuthResponse { Success = false, Message = "This Google account cannot be linked to the selected DoForYou account." });
+
+        // Google has independently asserted control of this verified email address.
+        // Link by stable subject only after validating token signature, issuer, expiry and audience.
+        user.GoogleSubject = googlePayload.Subject;
+        if (!user.EmailVerified)
+        {
+            user.EmailVerified = true;
+            user.SecurityStamp = CreateSecureToken();
+        }
+        if (string.IsNullOrWhiteSpace(user.NormalizedEmail))
+            user.NormalizedEmail = user.Email.Trim().ToLowerInvariant();
+
+        if (user.AuthenticatorTwoFactorEnabled)
+        {
+            if (!_authenticatorService.IsConfigured)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
+            if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
+                return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
+            if (!ValidateSecondFactor(user, request.SecondFactorCode))
+                return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
+            user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Successful Google login for user id {UserId}", user.Id);
+        return Ok(CreateSessionResponse(user, "Google sign-in successful."));
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("google/register")]
+    [AllowAnonymous]
+    public async Task<ActionResult<AuthResponse>> RegisterWithGoogle([FromBody] GoogleRegisterRequest request)
+    {
+        var googlePayload = await ValidateGoogleIdTokenAsync(request.IdToken);
+        if (googlePayload == null || googlePayload.EmailVerified != true ||
+            string.IsNullOrWhiteSpace(googlePayload.Subject) ||
+            string.IsNullOrWhiteSpace(googlePayload.Email))
+            return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-up could not be verified. Please try again." });
+
+        var firstName = string.IsNullOrWhiteSpace(request.FirstName) ? googlePayload.GivenName?.Trim() : request.FirstName.Trim();
+        var lastName = string.IsNullOrWhiteSpace(request.LastName) ? googlePayload.FamilyName?.Trim() : request.LastName.Trim();
+        var normalizedEmail = googlePayload.Email.Trim().ToLowerInvariant();
+        var userType = request.UserType.Trim().ToLowerInvariant();
+        var normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
+        if (string.IsNullOrWhiteSpace(firstName) || firstName.Length > 50 ||
+            string.IsNullOrWhiteSpace(lastName) || lastName.Length > 50)
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter your first and last name to continue." });
+        if (userType is not ("creator" or "runner" or "both"))
+            return BadRequest(new AuthResponse { Success = false, Message = "Choose Creator, Runner, or Both." });
+        if (normalizedPhone == null)
+            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African mobile number." });
+        if (!request.TermsAccepted || !request.PrivacyAccepted ||
+            !string.Equals(request.TermsVersion, CurrentTermsVersion, StringComparison.Ordinal) ||
+            !string.Equals(request.PrivacyVersion, CurrentPrivacyVersion, StringComparison.Ordinal))
+            return BadRequest(new AuthResponse { Success = false, Message = "Review and accept the current terms and privacy notice to create an account." });
+
+        if (await _context.Users.AnyAsync(u =>
+            u.NormalizedEmail == normalizedEmail ||
+            u.GoogleSubject == googlePayload.Subject ||
+            (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail)))
+            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in instead." });
+
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = firstName,
+            LastName = lastName,
+            Email = normalizedEmail,
+            NormalizedEmail = normalizedEmail,
+            PhoneNumber = normalizedPhone,
+            UserType = userType,
+            GoogleSubject = googlePayload.Subject,
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))),
+            IsVerified = false,
+            ProfileCompleted = false,
+            EmailVerified = true,
+            PhoneVerified = false,
+            IdentityVerificationStatus = "not_started",
+            AuthenticatorTwoFactorEnabled = false,
+            TermsAcceptedAt = now,
+            TermsVersion = request.TermsVersion.Trim(),
+            PrivacyAcceptedAt = now,
+            PrivacyVersion = request.PrivacyVersion.Trim(),
+            MarketingConsent = request.MarketingConsent,
+            MarketingConsentUpdatedAt = request.MarketingConsent ? now : null,
+            SecurityStamp = CreateSecureToken(),
+            Roles = "User",
+            CreatedAt = now
+        };
+        _context.Users.Add(user);
+        try
+        {
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateException)
+        {
+            _context.ChangeTracker.Clear();
+            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in instead." });
+        }
+
+        try
+        {
+            await _notificationService.NotifyAdminsAsync(
+                "new_user",
+                "New User Registered",
+                $"{user.FirstName} {user.LastName} ({user.Email}) joined as {user.UserType} using Google");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to notify admins about Google registration for user {UserId}", user.Id);
+        }
+
+        _logger.LogInformation("Successful Google registration for user id {UserId}", user.Id);
+        return Ok(CreateSessionResponse(user, "Account created with Google. Your email is verified."));
+    }
+
+    [HttpGet("two-factor/status")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<object>>> GetTwoFactorStatus()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new
+            {
+                enabled = user.AuthenticatorTwoFactorEnabled,
+                enrolledAt = user.AuthenticatorEnrolledAt,
+                remainingRecoveryCodes = ReadRecoveryCodeCount(user.AuthenticatorRecoveryCodeHashes),
+                encryptionConfigured = _authenticatorService.IsConfigured
+            }
+        });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("two-factor/setup")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<object>>> SetupTwoFactor([FromBody] TwoFactorSetupRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+        if (user.AuthenticatorTwoFactorEnabled)
+            return Conflict(new ApiResponse<object> { Success = false, Message = "Authenticator two-factor authentication is already enabled." });
+        if (!_authenticatorService.IsConfigured)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<object> { Success = false, Message = "Authenticator setup is not configured on this staging API yet." });
+
+        if (user.GoogleSubject == null)
+        {
+            if (string.IsNullOrWhiteSpace(request.CurrentPassword) ||
+                !BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
+                return Unauthorized(new ApiResponse<object> { Success = false, Message = "Confirm your current password to set up an authenticator." });
+        }
+        else if (!user.LastLoginAt.HasValue || user.LastLoginAt.Value < DateTime.UtcNow.AddMinutes(-10))
+        {
+            return Unauthorized(new ApiResponse<object> { Success = false, Message = "Sign in again before setting up an authenticator." });
+        }
+
+        var secret = _authenticatorService.CreateSecret();
+        user.PendingAuthenticatorSecretEncrypted = _authenticatorService.EncryptSecret(secret);
+        await _context.SaveChangesAsync();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new
+            {
+                secret,
+                provisioningUri = _authenticatorService.CreateProvisioningUri(user.Email, secret),
+                issuer = "DoForYou",
+                stepSeconds = 30,
+                digits = 6
+            },
+            Message = "Add this account to your authenticator app, then enter the current six-digit code to confirm setup. The secret is shown only during setup."
+        });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("two-factor/confirm")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<object>>> ConfirmTwoFactor([FromBody] TwoFactorCodeRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+        if (!_authenticatorService.IsConfigured)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<object> { Success = false, Message = "Authenticator setup is not configured on this staging API yet." });
+        if (user.AuthenticatorTwoFactorEnabled)
+            return Conflict(new ApiResponse<object> { Success = false, Message = "Authenticator two-factor authentication is already enabled." });
+        if (string.IsNullOrWhiteSpace(user.PendingAuthenticatorSecretEncrypted))
+            return Conflict(new ApiResponse<object> { Success = false, Message = "Start authenticator setup before confirming it." });
+
+        string secret;
+        try { secret = _authenticatorService.DecryptSecret(user.PendingAuthenticatorSecretEncrypted); }
+        catch (CryptographicException) { return StatusCode(503, new ApiResponse<object> { Success = false, Message = "Authenticator setup cannot be decrypted. Contact support." }); }
+        if (!_authenticatorService.VerifyCode(secret, request.Code))
+            return BadRequest(new ApiResponse<object> { Success = false, Message = "The authenticator code is invalid or expired. Check your device time and try again." });
+
+        var recoveryCodes = Enumerable.Range(0, 10).Select(_ => _authenticatorService.GenerateRecoveryCode()).ToArray();
+        user.AuthenticatorSecretEncrypted = user.PendingAuthenticatorSecretEncrypted;
+        user.PendingAuthenticatorSecretEncrypted = null;
+        user.AuthenticatorRecoveryCodeHashes = System.Text.Json.JsonSerializer.Serialize(
+            recoveryCodes.Select(_authenticatorService.HashRecoveryCode).ToArray());
+        user.AuthenticatorEnrolledAt = DateTime.UtcNow;
+        user.AuthenticatorTwoFactorEnabled = true;
+        user.SecurityStamp = CreateSecureToken();
+        await _context.SaveChangesAsync();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new { recoveryCodes, requiresSignInAgain = true },
+            Message = "Authenticator enabled. Save these one-time recovery codes now. They will not be shown again; sign in again to refresh your session."
+        });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("two-factor/disable")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> DisableTwoFactor([FromBody] DisableTwoFactorRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+        if (!user.AuthenticatorTwoFactorEnabled)
+            return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Authenticator two-factor authentication is already disabled." });
+        if (!_authenticatorService.IsConfigured)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<bool> { Success = false, Message = "Authenticator security is temporarily unavailable. Contact support." });
+
+        if (user.GoogleSubject == null &&
+            (string.IsNullOrWhiteSpace(request.CurrentPassword) ||
+             !BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash)))
+            return Unauthorized(new ApiResponse<bool> { Success = false, Message = "Confirm your current password before disabling authenticator security." });
+
+        if (!ValidateSecondFactor(user, request.Code))
+            return Unauthorized(new ApiResponse<bool> { Success = false, Message = "The authenticator or recovery code is invalid." });
+
+        user.AuthenticatorTwoFactorEnabled = false;
+        user.AuthenticatorSecretEncrypted = null;
+        user.PendingAuthenticatorSecretEncrypted = null;
+        user.AuthenticatorRecoveryCodeHashes = null;
+        user.AuthenticatorEnrolledAt = null;
+        user.LastTwoFactorVerifiedAt = null;
+        user.SecurityStamp = CreateSecureToken();
+        await _context.SaveChangesAsync();
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Authenticator disabled. Sign in again to refresh your session." });
+    }
+
     [HttpPost("refresh")]
     [Authorize]
     public async Task<ActionResult<AuthResponse>> Refresh()
@@ -488,16 +774,23 @@ public class AuthController : ControllerBase
             });
         }
 
+        if (user.AuthenticatorTwoFactorEnabled)
+        {
+            if (!_authenticatorService.IsConfigured)
+                return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new AuthResponse { Success = false, Message = "Authenticator sign-in is temporarily unavailable. Contact support." });
+            if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
+                return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
+            if (!ValidateSecondFactor(user, request.SecondFactorCode))
+                return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
+            user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
+        }
+
         user.LastLoginAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        var token = GenerateJwtToken(user);
-
         _logger.LogInformation("Successful login for user id {UserId}", user.Id);
-        return Ok(new AuthResponse
-        {
-            Success = true,
-            Token = token,
+        return Ok(CreateSessionResponse(user, "Login successful"));
             User = new UserDto
             {
                 Id = user.Id,
@@ -526,6 +819,103 @@ public class AuthController : ControllerBase
             Message = "Login successful"
         });
     }
+
+    private async Task<GoogleJsonWebSignature.Payload?> ValidateGoogleIdTokenAsync(string idToken)
+    {
+        var configuredIds = Environment.GetEnvironmentVariable("GOOGLE_CLIENT_IDS")
+            ?? _configuration["Google:ClientIds"]
+            ?? _configuration["Google:ClientId"];
+        var audiences = (configuredIds ?? string.Empty)
+            .Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (audiences.Length == 0) return null;
+        try
+        {
+            return await GoogleJsonWebSignature.ValidateAsync(
+                idToken,
+                new GoogleJsonWebSignature.ValidationSettings { Audience = audiences });
+        }
+        catch (InvalidJwtException)
+        {
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    private bool ValidateSecondFactor(User user, string? code)
+    {
+        if (!_authenticatorService.IsConfigured || string.IsNullOrWhiteSpace(code)) return false;
+        if (!string.IsNullOrWhiteSpace(user.AuthenticatorSecretEncrypted))
+        {
+            try
+            {
+                var secret = _authenticatorService.DecryptSecret(user.AuthenticatorSecretEncrypted);
+                if (_authenticatorService.VerifyCode(secret, code)) return true;
+            }
+            catch (CryptographicException ex)
+            {
+                _logger.LogError(ex, "Authenticator secret decryption failed for user {UserId}", user.Id);
+                return false;
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogError(ex, "Authenticator secret format was invalid for user {UserId}", user.Id);
+                return false;
+            }
+        }
+
+        if (_authenticatorService.TryConsumeRecoveryCode(code, user.AuthenticatorRecoveryCodeHashes, out var remaining))
+        {
+            user.AuthenticatorRecoveryCodeHashes = remaining;
+            return true;
+        }
+        return false;
+    }
+
+    private static int ReadRecoveryCodeCount(string? serializedHashes)
+    {
+        if (string.IsNullOrWhiteSpace(serializedHashes)) return 0;
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(serializedHashes)?.Count ?? 0; }
+        catch (System.Text.Json.JsonException) { return 0; }
+    }
+
+    private AuthResponse CreateSessionResponse(User user, string message) => new()
+    {
+        Success = true,
+        Token = GenerateJwtToken(user),
+        User = new UserDto
+        {
+            Id = user.Id,
+            FirstName = user.FirstName,
+            LastName = user.LastName,
+            Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
+            ProfileCompleted = _userPolicyService.IsProfileComplete(user),
+            ProfileCompletion = _userPolicyService.GetProfileCompletion(user),
+            MissingProfileFields = _userPolicyService.GetMissingProfileFields(user).ToArray(),
+            CanCreateTasks = _userPolicyService.CanCreateTasks(user),
+            CanAcceptTasks = _userPolicyService.CanAcceptTasks(user),
+            Rating = user.Rating,
+            CompletedTasks = user.CompletedTasks,
+            Roles = user.Roles,
+            IsAdmin = user.Roles?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Any(role => string.Equals(role.Trim(), "Admin", StringComparison.OrdinalIgnoreCase)) == true,
+            UserType = user.UserType,
+            CreatedAt = user.CreatedAt,
+            LastLoginAt = user.LastLoginAt,
+            IsVerified = user.IsVerified,
+            EmailVerified = user.EmailVerified,
+            PhoneVerified = user.PhoneVerified,
+            IdentityVerificationStatus = user.IdentityVerificationStatus,
+            AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled,
+            HasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject)
+        },
+        Message = message
+    };
 
     private static string CreateSecureToken() =>
         WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
