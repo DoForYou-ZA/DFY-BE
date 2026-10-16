@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
@@ -36,6 +37,7 @@ public class AuthController : ControllerBase
         _userPolicyService = userPolicyService;
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("register")]
     public async Task<ActionResult<AuthResponse>> Register([FromBody] RegisterRequest request)
     {
@@ -220,6 +222,7 @@ public class AuthController : ControllerBase
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password changed successfully" });
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
     {
