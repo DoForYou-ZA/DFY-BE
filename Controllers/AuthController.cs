@@ -313,21 +313,87 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => (u.NormalizedEmail == normalizedEmail || (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail)) && !u.IsArchived);
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            (u.NormalizedEmail == normalizedEmail ||
+             (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail)) &&
+            !u.IsArchived);
         var now = DateTime.UtcNow;
-        if (user != null &&
-            (!user.PasswordResetSentAt.HasValue || user.PasswordResetSentAt.Value <= now.AddMinutes(-2)))
+
+        if (user != null)
         {
+            // Keep a persisted per-account rolling 24-hour budget. The public response
+            // remains identical for unknown accounts, cooldowns, and exhausted quotas.
+            var resetWindow = !user.PasswordResetSendWindowStartAt.HasValue ||
+                              user.PasswordResetSendWindowStartAt.Value <= now.AddHours(-24);
+            if (resetWindow)
+            {
+                if (_context.Database.IsRelational())
+                {
+                    await _context.Users
+                        .Where(u => u.Id == user.Id &&
+                            (!u.PasswordResetSendWindowStartAt.HasValue ||
+                             u.PasswordResetSendWindowStartAt <= now.AddHours(-24)))
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(u => u.PasswordResetSendWindowStartAt, now)
+                            .SetProperty(u => u.PasswordResetSendCount, 0),
+                            HttpContext.RequestAborted);
+                }
+                else
+                {
+                    user.PasswordResetSendWindowStartAt = now;
+                    user.PasswordResetSendCount = 0;
+                }
+            }
+
             var token = CreateSecureToken();
-            user.PasswordResetTokenHash = HashToken(token);
-            user.PasswordResetExpiry = now.AddMinutes(30);
-            user.PasswordResetSentAt = now;
-            await _context.SaveChangesAsync();
-            try { await SendPasswordResetEmailAsync(user.Email, token, HttpContext.RequestAborted); }
-            catch (Exception) { _logger.LogWarning("Password reset email could not be sent for user {UserId}", user.Id); }
+            var tokenHash = HashToken(token);
+            var canSend = _context.Users.Where(u =>
+                u.Id == user.Id &&
+                !u.IsArchived &&
+                u.PasswordResetSendWindowStartAt.HasValue &&
+                u.PasswordResetSendWindowStartAt > now.AddHours(-24) &&
+                u.PasswordResetSendCount < 5 &&
+                (!u.PasswordResetSentAt.HasValue ||
+                 u.PasswordResetSentAt <= now.AddSeconds(-60)));
+
+            var sent = false;
+            if (_context.Database.IsRelational())
+            {
+                var affected = await canSend.ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.PasswordResetTokenHash, tokenHash)
+                    .SetProperty(u => u.PasswordResetExpiry, now.AddMinutes(30))
+                    .SetProperty(u => u.PasswordResetSentAt, now)
+                    .SetProperty(u => u.PasswordResetSendCount, u => u.PasswordResetSendCount + 1),
+                    HttpContext.RequestAborted);
+                sent = affected == 1;
+            }
+            else if (user.PasswordResetSendWindowStartAt.HasValue &&
+                     user.PasswordResetSendWindowStartAt.Value > now.AddHours(-24) &&
+                     user.PasswordResetSendCount < 5 &&
+                     (!user.PasswordResetSentAt.HasValue ||
+                      user.PasswordResetSentAt.Value <= now.AddSeconds(-60)))
+            {
+                user.PasswordResetTokenHash = tokenHash;
+                user.PasswordResetExpiry = now.AddMinutes(30);
+                user.PasswordResetSentAt = now;
+                user.PasswordResetSendCount++;
+                await _context.SaveChangesAsync();
+                sent = true;
+            }
+
+            if (sent)
+            {
+                try { await SendPasswordResetEmailAsync(user.Email, token, HttpContext.RequestAborted); }
+                catch (Exception) { _logger.LogWarning("Password reset email could not be sent for user {UserId}", user.Id); }
+            }
         }
 
-        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If an account matches that email, password reset instructions will be sent shortly." });
+        return Ok(new ApiResponse<bool>
+        {
+            Success = true,
+            Data = true,
+            Message = "If an account matches that email, password reset instructions will be sent shortly."
+        });
     }
 
     [EnableRateLimiting("auth")]
@@ -675,6 +741,29 @@ public class AuthController : ControllerBase
         user.SecurityStamp = CreateSecureToken();
         await _context.SaveChangesAsync();
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Authenticator disabled. Sign in again to refresh your session." });
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<bool>>> Logout()
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null) return Unauthorized();
+
+        // This API uses stateless access tokens rather than per-device refresh-token
+        // families, so a logout rotates the shared security stamp and revokes all
+        // active sessions for the account. Clients must clear local credentials even
+        // if this best-effort request cannot reach the API.
+        user.SecurityStamp = CreateSecureToken();
+        await _context.SaveChangesAsync();
+        return Ok(new ApiResponse<bool>
+        {
+            Success = true,
+            Data = true,
+            Message = "Signed out. Other active sessions have also been revoked."
+        });
     }
 
     [HttpPost("refresh")]
