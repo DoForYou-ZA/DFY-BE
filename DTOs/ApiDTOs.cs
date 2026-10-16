@@ -502,6 +502,18 @@ public class ValidateIdRequest
     public string? IdNumber { get; set; }
 }
 
+public class ReauthenticateRequest
+{
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
+
+    [StringLength(10000, MinimumLength = 20)]
+    public string? GoogleIdToken { get; set; }
+
+    [StringLength(20, MinimumLength = 6)]
+    public string? SecondFactorCode { get; set; }
+}
+
 public class ChangePasswordRequest
 {
     [Required, StringLength(72)]
