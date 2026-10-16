@@ -449,7 +449,8 @@ public sealed class IdentityVerificationController(
                 ReceivedAt = DateTime.UtcNow
             };
 
-            if (providerEventAt > (user.IdentityVerificationLastEventAt ?? DateTime.MinValue) &&
+            if (providerEventAt >= (user.IdentityVerificationStartedAt ?? DateTime.MinValue) &&
+                providerEventAt > (user.IdentityVerificationLastEventAt ?? DateTime.MinValue) &&
                 !string.Equals(resultStatus, "ignored", StringComparison.Ordinal))
             {
                 // Only final, signed applicantReviewed results can grant the passed state.
@@ -533,8 +534,9 @@ public sealed class IdentityVerificationController(
         foreach (var part in path)
         {
             if (current.ValueKind != JsonValueKind.Object ||
-                !current.TryGetProperty(part, out current))
+                !current.TryGetProperty(part, out var next))
                 return null;
+            current = next;
         }
 
         return current.ValueKind == JsonValueKind.String
@@ -552,10 +554,25 @@ public sealed class IdentityVerificationController(
     private static DateTime? ParseProviderEventTime(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return null;
-        if (!DateTime.TryParse(value, CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
-            return null;
-        return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+
+        // Sumsub's createdAtMs is a UTC timestamp string such as
+        // "2026-04-24 13:23:19.002", not an epoch-millisecond number.
+        if (DateTime.TryParseExact(
+                value,
+                ["yyyy-MM-dd HH:mm:ss.fff", "yyyy-MM-dd HH:mm:ss"],
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+            return DateTime.SpecifyKind(parsed, DateTimeKind.Utc);
+
+        if (DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var offsetParsed))
+            return offsetParsed.UtcDateTime;
+
+        return null;
     }
 
     private static string? Clip(string? value, int maximum) =>
