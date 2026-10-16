@@ -69,4 +69,6 @@ public class User
     public DateTime? FailedLoginWindowStartAt { get; set; }
     public DateTime? LoginLockoutUntil { get; set; }
     public string? SecurityStamp { get; set; }
+    public string? SensitiveActionTokenHash { get; set; }
+    public DateTime? SensitiveActionTokenExpiry { get; set; }
 }
