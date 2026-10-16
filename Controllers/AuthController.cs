@@ -501,16 +501,15 @@ public class AuthController : ControllerBase
         User? user;
         if (userBySubject != null)
         {
-            var linkedEmail = string.IsNullOrWhiteSpace(userBySubject.NormalizedEmail)
-                ? userBySubject.Email.Trim().ToLowerInvariant()
-                : userBySubject.NormalizedEmail;
-            if (!string.Equals(linkedEmail, normalizedEmail, StringComparison.Ordinal) ||
-                (userByEmail != null && userByEmail.Id != userBySubject.Id))
+            // Google subject is the stable external identity. Its email may change
+            // independently after the account is linked; never re-identify by email.
+            // Still stop if the current Google email belongs to a different local account.
+            if (userByEmail != null && userByEmail.Id != userBySubject.Id)
             {
                 return Conflict(new AuthResponse
                 {
                     Success = false,
-                    Message = "This Google identity does not match the linked DoForYou account. Use the original sign-in method or contact support."
+                    Message = "This Google identity conflicts with a different DoForYou account. Contact support for account recovery."
                 });
             }
             user = userBySubject;
@@ -607,16 +606,12 @@ public class AuthController : ControllerBase
             HttpContext.RequestAborted);
         if (user == null) return Unauthorized();
 
-        var accountEmail = string.IsNullOrWhiteSpace(user.NormalizedEmail)
-            ? user.Email.Trim().ToLowerInvariant()
-            : user.NormalizedEmail;
-        var googleEmail = googlePayload.Email.Trim().ToLowerInvariant();
-        if (!user.EmailVerified || !string.Equals(accountEmail, googleEmail, StringComparison.Ordinal))
+        if (!user.EmailVerified)
             return Conflict(new ApiResponse<object>
             {
                 Success = false,
-                Error = "GOOGLE_EMAIL_MISMATCH",
-                Message = "Link only a Google account whose verified email matches this DoForYou account."
+                Error = "DOFORYOU_EMAIL_NOT_VERIFIED",
+                Message = "Verify this DoForYou account's email before linking another sign-in method."
             });
 
         if (string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
@@ -670,8 +665,7 @@ public class AuthController : ControllerBase
                                 u.SensitiveActionTokenHash == tokenHash &&
                                 u.SensitiveActionTokenExpiry != null &&
                                 u.SensitiveActionTokenExpiry > now &&
-                                (u.NormalizedEmail == accountEmail ||
-                                 (u.NormalizedEmail == null && u.Email.ToLower() == accountEmail)))
+                                u.EmailVerified)
                     .ExecuteUpdateAsync(setters => setters
                         .SetProperty(u => u.GoogleSubject, googlePayload.Subject)
                         .SetProperty(u => u.SensitiveActionTokenHash, (string?)null)
