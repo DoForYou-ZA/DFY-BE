@@ -678,6 +678,7 @@ private static AppDbContext CreateContext(string name)
             Roles = "User",
             PasswordHash = "hash",
             IsVerified = true,
+            EmailVerified = true,
         };
     }
 
