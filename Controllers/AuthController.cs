@@ -204,7 +204,10 @@ public class AuthController : ControllerBase
                     .SetProperty(u => u.EmailVerificationToken, (string?)null)
                     .SetProperty(u => u.EmailVerificationExpiry, (DateTime?)null)
                     .SetProperty(u => u.EmailVerificationSentAt, (DateTime?)null)
-                    .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                    .SetProperty(u => u.SecurityStamp, newSecurityStamp)
+                    .SetProperty(u => u.FailedLoginAttempts, 0)
+                    .SetProperty(u => u.FailedLoginWindowStartAt, (DateTime?)null)
+                    .SetProperty(u => u.LoginLockoutUntil, (DateTime?)null),
                     HttpContext.RequestAborted);
             if (affected == 0)
                 return BadRequest(new ApiResponse<bool> { Success = false, Message = "This verification link is invalid or has expired. Request a new one." });
@@ -216,6 +219,9 @@ public class AuthController : ControllerBase
             user.EmailVerificationExpiry = null;
             user.EmailVerificationSentAt = null;
             user.SecurityStamp = newSecurityStamp;
+            user.FailedLoginAttempts = 0;
+            user.FailedLoginWindowStartAt = null;
+            user.LoginLockoutUntil = null;
             await _context.SaveChangesAsync();
         }
 
@@ -876,21 +882,29 @@ public class AuthController : ControllerBase
     {
         if (request == null)
             return BadRequest("Invalid request");
-        
-        // Normalize the email identifier without accepting URI prefixes.
+
         var cleanEmail = request.Email?.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => (u.NormalizedEmail == cleanEmail || (u.NormalizedEmail == null && u.Email.ToLower() == cleanEmail)));
-        // Perform a hash verification for unknown accounts to reduce timing-based enumeration.
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            u.NormalizedEmail == cleanEmail ||
+            (u.NormalizedEmail == null && u.Email.ToLower() == cleanEmail));
+
+        // Verify against a dummy hash for unknown emails to reduce timing-based enumeration.
         var hashToVerify = user?.PasswordHash ?? DummyPasswordHash;
         var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password ?? string.Empty, hashToVerify);
 
-        if (user == null || user.IsArchived || !passwordValid)
+        if (user == null || user.IsArchived)
         {
-            return Unauthorized(new AuthResponse
-            {
-                Success = false,
-                Message = "Invalid email or password"
-            });
+            return Unauthorized(new AuthResponse { Success = false, Message = "Invalid email or password" });
+        }
+
+        var now = DateTime.UtcNow;
+        if (user.LoginLockoutUntil.HasValue && user.LoginLockoutUntil.Value > now)
+            return Unauthorized(new AuthResponse { Success = false, Message = "Invalid email or password" });
+
+        if (!passwordValid)
+        {
+            await RecordFailedLoginAsync(user.Id);
+            return Unauthorized(new AuthResponse { Success = false, Message = "Invalid email or password" });
         }
 
         var isAdminAccount = user.Roles?.Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -909,11 +923,17 @@ public class AuthController : ControllerBase
             if (string.IsNullOrWhiteSpace(request.SecondFactorCode))
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "Enter the code from your authenticator app or a recovery code." });
             if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
+            {
+                await RecordFailedLoginAsync(user.Id);
                 return Unauthorized(new AuthResponse { Success = false, RequiresTwoFactor = true, Message = "The authenticator or recovery code is invalid." });
-            user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
+            }
+            user.LastTwoFactorVerifiedAt = now;
         }
 
-        user.LastLoginAt = DateTime.UtcNow;
+        user.FailedLoginAttempts = 0;
+        user.FailedLoginWindowStartAt = null;
+        user.LoginLockoutUntil = null;
+        user.LastLoginAt = now;
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Successful login for user id {UserId}", user.Id);
@@ -944,6 +964,55 @@ public class AuthController : ControllerBase
         {
             return null;
         }
+    }
+
+    private async Task RecordFailedLoginAsync(int userId)
+    {
+        var now = DateTime.UtcNow;
+        var cutoff = now.AddMinutes(-15);
+
+        if (_context.Database.IsRelational())
+        {
+            await _context.Users
+                .Where(u => u.Id == userId &&
+                            (!u.LoginLockoutUntil.HasValue || u.LoginLockoutUntil <= now))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.FailedLoginWindowStartAt,
+                        u => !u.FailedLoginWindowStartAt.HasValue || u.FailedLoginWindowStartAt <= cutoff
+                            ? now
+                            : u.FailedLoginWindowStartAt)
+                    .SetProperty(u => u.FailedLoginAttempts,
+                        u => !u.FailedLoginWindowStartAt.HasValue || u.FailedLoginWindowStartAt <= cutoff
+                            ? 1
+                            : u.FailedLoginAttempts + 1)
+                    .SetProperty(u => u.LoginLockoutUntil,
+                        u => !u.FailedLoginWindowStartAt.HasValue || u.FailedLoginWindowStartAt <= cutoff
+                            ? (DateTime?)null
+                            : u.FailedLoginAttempts + 1 >= 10
+                                ? now.AddMinutes(15)
+                                : u.LoginLockoutUntil),
+                    HttpContext.RequestAborted);
+            return;
+        }
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || (user.LoginLockoutUntil.HasValue && user.LoginLockoutUntil.Value > now))
+            return;
+
+        if (!user.FailedLoginWindowStartAt.HasValue || user.FailedLoginWindowStartAt.Value <= cutoff)
+        {
+            user.FailedLoginWindowStartAt = now;
+            user.FailedLoginAttempts = 1;
+            user.LoginLockoutUntil = null;
+        }
+        else
+        {
+            user.FailedLoginAttempts++;
+            if (user.FailedLoginAttempts >= 10)
+                user.LoginLockoutUntil = now.AddMinutes(15);
+        }
+
+        await _context.SaveChangesAsync();
     }
 
     private async Task<bool> ValidateSecondFactorAsync(User user, string? code)
