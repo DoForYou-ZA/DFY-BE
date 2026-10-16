@@ -12,6 +12,7 @@ public interface IAuthenticatorService
     string DecryptSecret(string encrypted);
     string CreateProvisioningUri(string email, string secret);
     bool VerifyCode(string secret, string? code, DateTimeOffset? now = null);
+    bool TryVerifyCode(string secret, string? code, out long matchedStep, DateTimeOffset? now = null);
     string GenerateRecoveryCode();
     string HashRecoveryCode(string code);
     bool TryConsumeRecoveryCode(string code, string? serializedHashes, out string remainingSerializedHashes);
@@ -86,11 +87,14 @@ public sealed class AuthenticatorService(IConfiguration configuration) : IAuthen
         return $"otpauth://totp/{label}?secret={Uri.EscapeDataString(secret)}&issuer={Uri.EscapeDataString(Issuer)}&algorithm=SHA1&digits={Digits}&period={StepSeconds}";
     }
 
-    public bool VerifyCode(string secret, string? code, DateTimeOffset? now = null)
+    public bool VerifyCode(string secret, string? code, DateTimeOffset? now = null) =>
+        TryVerifyCode(secret, code, out _, now);
+
+    public bool TryVerifyCode(string secret, string? code, out long matchedStep, DateTimeOffset? now = null)
     {
+        matchedStep = -1;
         if (string.IsNullOrWhiteSpace(code)) return false;
         if (code.Length != Digits || !code.All(char.IsAsciiDigit)) return false;
-        var normalized = code;
 
         byte[] key;
         try { key = Base32Decode(secret); }
@@ -99,11 +103,14 @@ public sealed class AuthenticatorService(IConfiguration configuration) : IAuthen
         var counter = (now ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds() / StepSeconds;
         for (var offset = -1; offset <= 1; offset++)
         {
-            var expected = ComputeCode(key, counter + offset);
+            var step = counter + offset;
+            if (step < 0) continue;
+            var expected = ComputeCode(key, step);
             var left = Encoding.ASCII.GetBytes(expected);
-            var right = Encoding.ASCII.GetBytes(normalized);
+            var right = Encoding.ASCII.GetBytes(code);
             if (CryptographicOperations.FixedTimeEquals(left, right))
             {
+                matchedStep = step;
                 CryptographicOperations.ZeroMemory(key);
                 return true;
             }
