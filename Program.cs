@@ -176,6 +176,7 @@ builder.Services.AddScoped<IEscrowService, EscrowService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IBankingService, BankingService>();
 builder.Services.AddScoped<IUserPolicyService, UserPolicyService>();
+builder.Services.AddSingleton<IAuthenticatorService, AuthenticatorService>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EscrowReleaseService>();
 
