@@ -93,6 +93,8 @@ public class AuthController : ControllerBase
             EmailVerificationToken = HashToken(verificationToken),
             EmailVerificationExpiry = now.AddHours(24),
             EmailVerificationSentAt = now,
+            EmailVerificationSendWindowStartAt = now,
+            EmailVerificationSendCount = 1,
             SecurityStamp = CreateSecureToken(),
             Roles = "User",
             CreatedAt = now
@@ -216,16 +218,78 @@ public class AuthController : ControllerBase
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
         var now = DateTime.UtcNow;
-        if (user != null && !user.EmailVerified &&
-            (!user.EmailVerificationSentAt.HasValue || user.EmailVerificationSentAt.Value <= now.AddMinutes(-2)))
+
+        if (user != null && !user.EmailVerified)
         {
+            // Reset the rolling 24-hour budget only when its persisted window has expired.
+            if (!user.EmailVerificationSendWindowStartAt.HasValue ||
+                user.EmailVerificationSendWindowStartAt.Value <= now.AddHours(-24))
+            {
+                if (_context.Database.IsRelational())
+                {
+                    await _context.Users
+                        .Where(u => u.Id == user.Id &&
+                            (!u.EmailVerificationSendWindowStartAt.HasValue ||
+                             u.EmailVerificationSendWindowStartAt <= now.AddHours(-24)))
+                        .ExecuteUpdateAsync(setters => setters
+                            .SetProperty(u => u.EmailVerificationSendWindowStartAt, now)
+                            .SetProperty(u => u.EmailVerificationSendCount, 0),
+                            HttpContext.RequestAborted);
+                }
+                else
+                {
+                    user.EmailVerificationSendWindowStartAt = now;
+                    user.EmailVerificationSendCount = 0;
+                    await _context.SaveChangesAsync();
+                }
+            }
+
             var token = CreateSecureToken();
-            user.EmailVerificationToken = HashToken(token);
-            user.EmailVerificationExpiry = now.AddHours(24);
-            user.EmailVerificationSentAt = now;
-            await _context.SaveChangesAsync();
-            try { await SendVerificationEmailAsync(user.Email, token, HttpContext.RequestAborted); }
-            catch (Exception) { _logger.LogWarning("Verification resend failed for user {UserId}", user.Id); }
+            var tokenHash = HashToken(token);
+            var canSend = _context.Users.Where(u =>
+                u.Id == user.Id &&
+                !u.IsArchived &&
+                !u.EmailVerified &&
+                u.EmailVerificationSendWindowStartAt.HasValue &&
+                u.EmailVerificationSendWindowStartAt > now.AddHours(-24) &&
+                u.EmailVerificationSendCount < 5 &&
+                (!u.EmailVerificationSentAt.HasValue ||
+                 u.EmailVerificationSentAt <= now.AddSeconds(-60)));
+
+            var sent = false;
+            if (_context.Database.IsRelational())
+            {
+                var affected = await canSend.ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.EmailVerificationToken, tokenHash)
+                    .SetProperty(u => u.EmailVerificationExpiry, now.AddHours(24))
+                    .SetProperty(u => u.EmailVerificationSentAt, now)
+                    .SetProperty(u => u.EmailVerificationSendCount, u => u.EmailVerificationSendCount + 1),
+                    HttpContext.RequestAborted);
+                sent = affected == 1;
+            }
+            else
+            {
+                if (!user.EmailVerified &&
+                    user.EmailVerificationSendWindowStartAt.HasValue &&
+                    user.EmailVerificationSendWindowStartAt.Value > now.AddHours(-24) &&
+                    user.EmailVerificationSendCount < 5 &&
+                    (!user.EmailVerificationSentAt.HasValue ||
+                     user.EmailVerificationSentAt.Value <= now.AddSeconds(-60)))
+                {
+                    user.EmailVerificationToken = tokenHash;
+                    user.EmailVerificationExpiry = now.AddHours(24);
+                    user.EmailVerificationSentAt = now;
+                    user.EmailVerificationSendCount++;
+                    await _context.SaveChangesAsync();
+                    sent = true;
+                }
+            }
+
+            if (sent)
+            {
+                try { await SendVerificationEmailAsync(user.Email, token, HttpContext.RequestAborted); }
+                catch (Exception) { _logger.LogWarning("Verification resend failed for user {UserId}", user.Id); }
+            }
         }
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If the account exists and needs verification, an email will be sent shortly." });
