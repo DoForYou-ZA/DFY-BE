@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using DoForYou.API.Data;
 using DoForYou.API.Services;
 using DoForYou.API.Services.Background;
@@ -151,7 +152,29 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// Per-IP throttling for public authentication endpoints.
+// Forward only the headers that are needed for scheme and client-IP handling.
+// Enable this only when the API is behind the managed Render ingress proxy. Render must
+// be the public ingress; ForwardLimit=1 uses the nearest forwarded hop and prevents a
+// client-supplied leftmost X-Forwarded-For value from being used for the limiter.
+var trustManagedIngress = string.Equals(
+    builder.Configuration["DFY_TRUST_MANAGED_INGRESS"],
+    "true",
+    StringComparison.OrdinalIgnoreCase);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    if (trustManagedIngress)
+    {
+        // Render's ingress IPs are managed and can change. Do not enable this flag for
+        // deployments directly exposed to clients or behind an untrusted proxy.
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
+
+// Per-IP throttling for public authentication endpoints. Request IP uses the forwarded
+// client address only when DFY_TRUST_MANAGED_INGRESS=true for the managed Render ingress.
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -364,6 +387,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
+if (trustManagedIngress)
+    app.UseForwardedHeaders();
 
 app.UseRouting();
 app.UseCors("AllowFrontend");
