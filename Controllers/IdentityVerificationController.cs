@@ -416,8 +416,20 @@ public sealed class IdentityVerificationController(
 
             var externalUserId = ReadString(root, "externalUserId");
             var eventType = ReadString(root, "type");
-            if (string.IsNullOrWhiteSpace(externalUserId) || string.IsNullOrWhiteSpace(eventType))
+            var levelName = ReadString(root, "levelName");
+            if (string.IsNullOrWhiteSpace(externalUserId) ||
+                string.IsNullOrWhiteSpace(eventType) ||
+                string.IsNullOrWhiteSpace(levelName))
                 return BadRequest();
+
+            // The configured verification level defines which document and liveness
+            // steps can qualify a runner. A signed event from any other level must
+            // not grant capabilities.
+            if (!string.Equals(levelName, identityVerification.ExpectedLevelName, StringComparison.Ordinal))
+            {
+                logger.LogWarning("Ignored signed identity-provider event from an unexpected verification level.");
+                return Accepted(new { accepted = true });
+            }
 
             var eventHash = Convert.ToHexString(SHA256.HashData(rawBody)).ToLowerInvariant();
             if (await context.IdentityVerificationEvents.AsNoTracking()
@@ -514,16 +526,21 @@ public sealed class IdentityVerificationController(
 
         var reviewStatus = ReadNestedString(root, "reviewStatus");
         var answer = ReadNestedString(root, "reviewResult", "reviewAnswer");
-        var rejectType = ReadNestedString(root, "reviewResult", "rejectType");
+        var rejectType = ReadNestedString(root, "reviewResult", "reviewRejectType");
 
         if (!string.Equals(reviewStatus, "completed", StringComparison.OrdinalIgnoreCase))
             return "manual_review";
         if (string.Equals(answer, "GREEN", StringComparison.OrdinalIgnoreCase))
             return "passed";
         if (string.Equals(answer, "RED", StringComparison.OrdinalIgnoreCase))
-            return string.Equals(rejectType, "FINAL", StringComparison.OrdinalIgnoreCase)
-                ? "failed"
-                : "failed";
+        {
+            // A retryable result may be resubmitted within the per-account limit.
+            // A final rejection has no self-service route around it: require review.
+            if (string.Equals(rejectType, "RETRY", StringComparison.OrdinalIgnoreCase))
+                return "failed";
+            if (string.Equals(rejectType, "FINAL", StringComparison.OrdinalIgnoreCase))
+                return "manual_review";
+        }
         // Unknown or incomplete results are never interpreted as approval.
         return "manual_review";
     }
