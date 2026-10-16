@@ -48,6 +48,11 @@ public class AuthRecoveryTests
 
         Assert.True(response.Success);
         Assert.Null(response.Token);
+        Assert.Equal(3, context.UserConsentEvents.Count());
+        Assert.All(context.UserConsentEvents, consent => Assert.Equal(user.Id, consent.UserId));
+        Assert.Contains(context.UserConsentEvents, consent => consent.ConsentType == "terms" && consent.Accepted && consent.Version == "terms-v1");
+        Assert.Contains(context.UserConsentEvents, consent => consent.ConsentType == "privacy" && consent.Accepted && consent.Version == "privacy-v1");
+        Assert.Contains(context.UserConsentEvents, consent => consent.ConsentType == "marketing" && !consent.Accepted && consent.Version == "marketing-v1");
         Assert.False(user.EmailVerified);
         Assert.False(user.PhoneVerified);
         Assert.Null(user.IdNumber);
