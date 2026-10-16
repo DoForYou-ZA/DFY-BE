@@ -21,6 +21,7 @@ public class User
     public DateTime? LastLoginAt { get; set; }
     public string? Roles { get; set; }
     public DateTime? EmailVerificationExpiry { get; set; }
+    public DateTime? EmailVerificationSentAt { get; set; }
     public string? EmailVerificationToken { get; set; }
     public bool EmailVerified { get; set; }
     public string? PhoneVerificationCode { get; set; }
@@ -47,5 +48,6 @@ public class User
     public DateTime? MarketingConsentUpdatedAt { get; set; }
     public string? PasswordResetTokenHash { get; set; }
     public DateTime? PasswordResetExpiry { get; set; }
+    public DateTime? PasswordResetSentAt { get; set; }
     public string? SecurityStamp { get; set; }
 }
