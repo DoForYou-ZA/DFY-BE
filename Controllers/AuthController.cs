@@ -48,8 +48,6 @@ public class AuthController : ControllerBase
         var firstName = request.FirstName.Trim();
         var lastName = request.LastName.Trim();
         var userType = request.UserType.Trim().ToLowerInvariant();
-        var idNumber = request.IdNumber?.Trim();
-        var address = request.Address.Trim();
         var now = DateTime.UtcNow;
 
         if (firstName.Length is < 1 or > 50 || lastName.Length is < 1 or > 50)
@@ -65,16 +63,8 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = "Review and accept the current terms and privacy notice to create an account." });
         if (!_userPolicyService.IsValidPhone(request.PhoneNumber))
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African phone number." });
-        if (!_userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(idNumber, out var derivedDateOfBirth))
-            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African ID number for an adult aged 18 or older." });
-        if (string.IsNullOrWhiteSpace(address) || address.Length < 2 || address.Length > 200 ||
-            _userPolicyService.IsPlaceholderAddress(address))
-            return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid area or address." });
         if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
             return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
-        if (await _context.Users.AnyAsync(u => u.IdNumber == idNumber))
-            return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Contact support if you believe this is an error." });
-
         var normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
         if (normalizedPhone == null)
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African mobile number." });
@@ -87,10 +77,7 @@ public class AuthController : ControllerBase
             Email = email,
             PhoneNumber = normalizedPhone,
             UserType = userType,
-            IdNumber = idNumber,
-            Address = address,
-            // Ignore client DOB: the ID prefix is parsed and age checked on the server.
-            DateOfBirth = derivedDateOfBirth,
+            // Identity and address are collected later through the appropriate onboarding flow.
             Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
             IsVerified = false,
@@ -139,8 +126,8 @@ public class AuthController : ControllerBase
             _logger.LogWarning(ex, "Failed to notify admins about newly registered user {UserId}", user.Id);
         }
 
-        // Do not issue a session during registration. Email/phone verification is
-        // still pending and this API must not imply the new account is verified.
+        // Do not issue a session during registration. Email verification is pending;
+        // a contact phone number is not treated as a verification factor.
         return Ok(new AuthResponse
         {
             Success = true,
@@ -164,7 +151,9 @@ public class AuthController : ControllerBase
                 UserType = user.UserType,
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
-                IsVerified = user.IsVerified
+                IsVerified = user.IsVerified,
+                IdentityVerificationStatus = user.IdentityVerificationStatus,
+                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
             Message = "Registration successful. Check your email for a verification link before signing in."
         });
@@ -356,7 +345,9 @@ public class AuthController : ControllerBase
                 UserType = user.UserType,
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
-                IsVerified = user.IsVerified
+                IsVerified = user.IsVerified,
+                IdentityVerificationStatus = user.IdentityVerificationStatus,
+                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
             Message = "Session refreshed"
         });
@@ -453,7 +444,9 @@ public class AuthController : ControllerBase
                 UserType = user.UserType,
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
-                IsVerified = user.IsVerified
+                IsVerified = user.IsVerified,
+                IdentityVerificationStatus = user.IdentityVerificationStatus,
+                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
             },
             Message = "Login successful"
         });
