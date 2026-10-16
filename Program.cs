@@ -239,8 +239,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                     return;
                 }
 
-                var tokenStamp = context.Principal?.FindFirst("security_stamp")?.Value;
-                if (!string.Equals(tokenStamp, account.SecurityStamp, StringComparison.Ordinal))
+                var tokenStamp = context.Principal?.FindFirst("security_stamp")?.Value ?? string.Empty;
+                var currentStamp = account.SecurityStamp ?? string.Empty;
+                if (!string.Equals(tokenStamp, currentStamp, StringComparison.Ordinal))
                     context.Fail("The session has been revoked. Please sign in again.");
             }
         };
