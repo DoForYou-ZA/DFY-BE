@@ -916,7 +916,7 @@ public class AuthController : ControllerBase
                 LastName = user.LastName,
                 Email = user.Email,
                 PhoneNumber = user.PhoneNumber,
-                ProfileCompleted = user.ProfileCompleted,
+                ProfileCompleted = _userPolicyService.IsProfileComplete(user),
                 ProfileCompletion = _userPolicyService.GetProfileCompletion(user),
                 MissingProfileFields = _userPolicyService.GetMissingProfileFields(user).ToArray(),
                 CanCreateTasks = _userPolicyService.CanCreateTasks(user),
