@@ -377,10 +377,10 @@ public class AuthController : ControllerBase
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters and no more than 72 UTF-8 bytes." });
 
         if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
-            return Ok(new ApiResponse<bool> { Success = false, Message = "New password must be different from the current password" });
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "New password must be different from the current password" });
 
         if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
-            return Ok(new ApiResponse<bool> { Success = false, Message = "Current password is incorrect" });
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Current password is incorrect" });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         user.SecurityStamp = CreateSecureToken();
