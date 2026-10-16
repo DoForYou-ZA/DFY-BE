@@ -266,6 +266,9 @@ public class IdentityVerificationControllerTests
 
         var provider = new FakeIdentityService();
         var controller = CreateController(context, provider);
+        // Direct controller invocation bypasses authorization middleware; model an
+        // unauthenticated HTTP request with a real HttpContext and empty principal.
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
 
         var action = await controller.RefreshProviderSession(CancellationToken.None);
 
