@@ -38,7 +38,7 @@ SMTP sender authorization, link delivery, link host and spam placement must be t
 - POST /api/v1/auth/forgot-password and POST /api/v1/auth/reset-password: generic response, persisted send limits, 30-minute hashed single-use token and security-stamp rotation.
 - POST /api/v1/auth/login: password check, verified-email gate, failed-login lockout and required TOTP/recovery-code check when enabled.
 - POST /api/v1/auth/google and POST /api/v1/auth/google/register: server validates Google ID tokens against configured audiences. New Google accounts still require a selected role, contact phone and required legal consent.
-- GET /api/v1/auth/two-factor/status, POST /api/v1/auth/two-factor/setup, confirm, cancel-setup, and disable: encrypted TOTP secret, expiring setup, hashed one-time recovery codes and session-stamp rotation. Enrollment returns HTTP 503 until the TOTP key is configured.
+- GET /api/v1/auth/two-factor/status, POST /api/v1/auth/two-factor/setup, confirm, cancel-setup, and disable: AES-GCM encrypted TOTP secret, 10-minute expiring setup, hashed one-time recovery codes, atomic time-step replay protection and session-stamp rotation. Enrollment returns HTTP 503 until the TOTP key is configured.
 - POST /api/v1/auth/change-password: current password required and existing sessions revoked.
 - POST /api/v1/auth/logout: rotates the shared security stamp and therefore revokes all sessions, not just the current device. Clients must clear local credentials even if this best-effort request fails.
 - PUT /api/v1/user/marketing-consent: changes optional marketing preference and appends an auditable consent event.
@@ -59,7 +59,7 @@ Verification/reset tokens are hashed at rest and consumed with conditional datab
 2. Confirm terms-v1, privacy-v1, and marketing-v1 correspond to approved text. Confirm consent retention/access rules.
 3. Configure SMTP, Google client IDs and the TOTP encryption key in the Render staging API secret configuration. Never paste secret values into GitHub, this PR, build logs or client bundles.
 4. Set proxy-aware forwarding only after verifying the service is behind the managed Render ingress. Test that spoofed X-Forwarded-For values do not control the IP limiter; test the actual forwarded client IP.
-5. Deploy the API/migrations first in staging, then smoke test /health, schema/migration state, email links, Google login and TOTP setup. If a required migration fails, roll back the deploy and do not start the clients.
+5. Deploy the API/migrations first in staging, then smoke test /health, schema/migration state, email links, Google login and TOTP setup. Verify TOTP time-step replay is rejected. If a required migration fails, roll back the deploy and do not start the clients.
 6. Register with a dedicated test inbox. Exercise existing/unknown-account neutral responses, resend cooldown/quota, used/expired/tampered tokens, multibyte password byte boundaries, lockouts and revocation.
 7. Exercise Creator, Runner and Both direct-API capability tests. Confirm Both can post while runner identity is incomplete, but cannot accept paid work. **BLOCKED:** no identity provider has been selected or configured; consequently the legitimate user journey to reach IdentityVerificationStatus=passed is not available yet, and Runner acceptance must remain disabled.
 8. Verify task posting, payment attempt/idempotency, claim concurrency, completion/24-hour timeout, dispute freeze, refund events and Paystack payout outcomes in test mode only. Never trigger a real charge or payout as an auth smoke test.
@@ -69,9 +69,9 @@ Verification/reset tokens are hashed at rest and consumed with conditional datab
 ## Remaining release blockers
 
 - **Identity/KYC policy and provider:** no provider or qualifying statuses have been approved/configured. Needs a product decision, provider sandbox credentials, retention/evidence design, appeal/manual-review path and qualified compliance review. Do not fake a passed identity result for acceptance testing in a shared staging database.
-- **Payout recent re-authentication:** bank-account add/verify/default/remove operations still need a server-enforced, cross-client step-up flow before they can be claimed as protected against stale sessions.
+- **Payout recent re-authentication:** the PR now implements a five-minute, one-operation step-up token for bank-account add/verify/default/remove, validated by the backend and surfaced in both clients. Hosted negative tests (missing, expired, reused token; Google/password + TOTP reauth) remain release evidence to capture.
 - **At-rest protection for legacy identity data:** current schema can still contain plaintext ID values; provider-backed data collection, encryption/HMAC key management, migration, retention/deletion and access controls are outstanding.
-- **Cross-instance rate limiting and incident runbooks:** IP-based limits are in-process; monitoring/alerts and distributed coordination remain necessary before scaling out.
+- **Cross-instance rate limiting and incident runbooks:** per-IP limiter counters are in-process; monitoring/alerts and distributed coordination remain necessary before scaling out.
 - **Lifecycle scope:** report/block, email change, account deletion/export/correction, suspended-account handling for active tasks/funds, and support/admin permission review are not implemented by these auth PRs.
 - **Staging evidence:** real SMTP delivery, Google OAuth audience/origin/package configuration, TOTP encryption key operation, deployed schema, proxy IP validation and cross-client E2E must be proven on the hosted staging services, not inferred from CI.
 
