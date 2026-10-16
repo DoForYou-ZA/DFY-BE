@@ -52,9 +52,11 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("phoneNumber");
         if (string.IsNullOrWhiteSpace(user.Address) || IsPlaceholderAddress(user.Address))
             missing.Add("address");
-        if (!IsValidSouthAfricanId(user.IdNumber))
+        var hasValidAdultId = TryGetAdultDateOfBirthFromSouthAfricanId(user.IdNumber, out var derivedDateOfBirth);
+        if (!hasValidAdultId)
             missing.Add("idNumber");
-        if (!user.DateOfBirth.HasValue)
+        if (!user.DateOfBirth.HasValue ||
+            (hasValidAdultId && user.DateOfBirth.Value.Date != derivedDateOfBirth.Date))
             missing.Add("dateOfBirth");
         var userTypeLower = NormalizeUserType(user.UserType);
         if (userTypeLower is not ("creator" or "runner" or "both"))
