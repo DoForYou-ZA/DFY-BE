@@ -697,7 +697,8 @@ public class AuthRecoveryTests
             new NoOpNotificationService(),
             new UserPolicyService(),
             new RecordingEmailSender(),
-            authenticator);
+            authenticator,
+            new CommonPasswordOnlyPolicyService());
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         var code = GenerateTotpCode(secret, DateTimeOffset.UtcNow);
 
@@ -717,6 +718,151 @@ public class AuthRecoveryTests
             SecondFactorCode = code
         });
         Assert.IsType<UnauthorizedObjectResult>(replay.Result);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Registration_rejects_compromised_passwords_without_creating_an_account()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var controller = CreateController(
+            context,
+            new RecordingEmailSender(),
+            passwordPolicy: new FixedPasswordPolicyService(PasswordPolicyStatus.Compromised));
+
+        var result = await controller.Register(new RegisterRequest
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "compromised@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            Password = "A-valid-unique-passphrase-2026",
+            TermsAccepted = true,
+            PrivacyAccepted = true,
+            TermsVersion = "terms-v1",
+            PrivacyVersion = "privacy-v1"
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.Empty(context.Users);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Registration_fails_closed_when_breach_check_is_unavailable()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var controller = CreateController(
+            context,
+            new RecordingEmailSender(),
+            passwordPolicy: new FixedPasswordPolicyService(PasswordPolicyStatus.Unavailable));
+
+        var result = await controller.Register(new RegisterRequest
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "check-unavailable@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            Password = "A-valid-unique-passphrase-2026",
+            TermsAccepted = true,
+            PrivacyAccepted = true,
+            TermsVersion = "terms-v1",
+            PrivacyVersion = "privacy-v1"
+        });
+
+        var unavailable = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, unavailable.StatusCode);
+        Assert.Empty(context.Users);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Reset_password_does_not_consume_token_when_password_policy_rejects_password()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        const string rawToken = "password-reset-policy-token";
+        var tokenHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken))).ToLowerInvariant();
+        var oldPassword = "A-valid-unique-passphrase-2026";
+        var user = new User
+        {
+            FirstName = "Reset",
+            LastName = "Policy",
+            Email = "reset-policy@example.com",
+            NormalizedEmail = "reset-policy@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(oldPassword),
+            PasswordResetTokenHash = tokenHash,
+            PasswordResetExpiry = DateTime.UtcNow.AddMinutes(10),
+            SecurityStamp = "original-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            new RecordingEmailSender(),
+            passwordPolicy: new FixedPasswordPolicyService(PasswordPolicyStatus.Compromised));
+        var result = await controller.ResetPassword(new AccountResetPasswordRequest
+        {
+            Token = rawToken,
+            NewPassword = "A-different-valid-passphrase-2026"
+        });
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        Assert.True(BCrypt.Net.BCrypt.Verify(oldPassword, user.PasswordHash));
+        Assert.Equal(tokenHash, user.PasswordResetTokenHash);
+        Assert.Equal("original-stamp", user.SecurityStamp);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Change_password_keeps_old_password_when_breach_check_is_unavailable()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        const string oldPassword = "A-valid-unique-passphrase-2026";
+        var user = new User
+        {
+            Id = 88,
+            FirstName = "Change",
+            LastName = "Policy",
+            Email = "change-policy@example.com",
+            NormalizedEmail = "change-policy@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(oldPassword),
+            PasswordLoginEnabled = true,
+            EmailVerified = true,
+            SecurityStamp = "original-change-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(
+            context,
+            new RecordingEmailSender(),
+            user.Id,
+            new FixedPasswordPolicyService(PasswordPolicyStatus.Unavailable));
+        var result = await controller.ChangePassword(new ChangePasswordRequest
+        {
+            CurrentPassword = oldPassword,
+            NewPassword = "A-new-valid-passphrase-2026"
+        });
+
+        var unavailable = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, unavailable.StatusCode);
+        Assert.True(BCrypt.Net.BCrypt.Verify(oldPassword, user.PasswordHash));
+        Assert.Equal("original-change-stamp", user.SecurityStamp);
     }
 
     private static string GenerateTotpCode(string base32Secret, DateTimeOffset now)
@@ -752,7 +898,11 @@ public class AuthRecoveryTests
         return (binary % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static AuthController CreateController(AppDbContext context, IEmailSender emailSender, int? authenticatedUserId = null)
+    private static AuthController CreateController(
+        AppDbContext context,
+        IEmailSender emailSender,
+        int? authenticatedUserId = null,
+        IPasswordPolicyService? passwordPolicy = null)
     {
         var settings = new Dictionary<string, string?>
         {
@@ -770,7 +920,8 @@ public class AuthRecoveryTests
             new NoOpNotificationService(),
             new UserPolicyService(),
             emailSender,
-            new AuthenticatorService(configuration));
+            new AuthenticatorService(configuration),
+            passwordPolicy ?? new CommonPasswordOnlyPolicyService());
         var httpContext = new DefaultHttpContext();
         if (authenticatedUserId.HasValue)
         {
@@ -781,6 +932,14 @@ public class AuthRecoveryTests
         }
         controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
+    }
+
+    private sealed class FixedPasswordPolicyService(PasswordPolicyStatus status) : IPasswordPolicyService
+    {
+        public System.Threading.Tasks.Task<PasswordPolicyResult> EvaluateAsync(
+            string password,
+            CancellationToken cancellationToken = default) =>
+            System.Threading.Tasks.Task.FromResult(new PasswordPolicyResult(status));
     }
 
     private sealed class RecordingEmailSender : IEmailSender
