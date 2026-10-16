@@ -362,6 +362,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [EnableRateLimiting("auth")]
     [HttpPost("change-password")]
     [Authorize]
     public async Task<ActionResult<ApiResponse<bool>>> ChangePassword([FromBody] ChangePasswordRequest request)
