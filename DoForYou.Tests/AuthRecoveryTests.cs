@@ -543,6 +543,45 @@ public class AuthRecoveryTests
         Assert.IsType<UnauthorizedObjectResult>(replay.Result);
     }
 
+    [Fact]
+    public async System.Threading.Tasks.Task Reauthentication_issues_hashed_five_minute_token_for_valid_password()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            FirstName = "Step",
+            LastName = "Up",
+            Email = "stepup@example.com",
+            NormalizedEmail = "stepup@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-strong-current-passphrase-2026"),
+            EmailVerified = true,
+            SecurityStamp = "existing-session-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender(), user.Id);
+        var result = await controller.Reauthenticate(new ReauthenticateRequest
+        {
+            CurrentPassword = "A-strong-current-passphrase-2026"
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(ok.Value);
+        var token = response.Data?.GetType().GetProperty("stepUpToken")?.GetValue(response.Data) as string;
+        Assert.True(response.Success);
+        Assert.False(string.IsNullOrWhiteSpace(token));
+        Assert.NotEqual(token, user.SensitiveActionTokenHash);
+        Assert.NotNull(user.SensitiveActionTokenHash);
+        Assert.True(user.SensitiveActionTokenExpiry > DateTime.UtcNow);
+        Assert.True(user.SensitiveActionTokenExpiry <= DateTime.UtcNow.AddMinutes(5));
+    }
+
     private static AuthController CreateController(AppDbContext context, IEmailSender emailSender, int? authenticatedUserId = null)
     {
         var settings = new Dictionary<string, string?>
