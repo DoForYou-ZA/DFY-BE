@@ -959,6 +959,30 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("IdentityVerificationProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationExternalUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationApplicantId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("IdentityVerificationStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IdentityVerificationUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IdentityVerificationLastEventAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdentityVerificationHandoffTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("IdentityVerificationHandoffExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("IsAvailable")
                         .HasColumnType("boolean");
 
@@ -1076,6 +1100,11 @@ namespace DoForYou.API.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("IdentityVerificationExternalUserId")
+                        .IsUnique()
+                        .HasFilter("\"IdentityVerificationExternalUserId\" IS NOT NULL")
+                        .HasDatabaseName("IX_Users_IdentityVerificationExternalUserId");
+
                     b.HasIndex("GoogleSubject")
                         .IsUnique()
                         .HasDatabaseName("IX_Users_GoogleSubject");
@@ -1127,7 +1156,68 @@ namespace DoForYou.API.Migrations
                     b.ToTable("UserConsentEvents");
                 });
 
+            modelBuilder.Entity("DoForYou.API.Models.IdentityVerificationEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("EventHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("ProviderApplicantId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResultStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "EventHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_IdentityVerificationEvents_Provider_EventHash");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasDatabaseName("IX_IdentityVerificationEvents_UserId_ReceivedAt");
+
+                    b.ToTable("IdentityVerificationEvents");
+                });
+
             modelBuilder.Entity("DoForYou.API.Models.UserConsentEvent", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.IdentityVerificationEvent", b =>
                 {
                     b.HasOne("DoForYou.API.Models.User", "User")
                         .WithMany()
