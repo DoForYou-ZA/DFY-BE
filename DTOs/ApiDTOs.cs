@@ -450,9 +450,11 @@ public class ValidateIdRequest
 
 public class ChangePasswordRequest
 {
-    [Required]
+    [Required, StringLength(72)]
     public string CurrentPassword { get; set; } = string.Empty;
-    [Required, MinLength(6)]
+
+    // Keep OpenAPI/client validation aligned with the controller's BCrypt-safe policy.
+    [Required, StringLength(72, MinimumLength = 12)]
     public string NewPassword { get; set; } = string.Empty;
 }
 
