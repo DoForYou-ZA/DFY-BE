@@ -43,7 +43,7 @@ public class UserController : ControllerBase
             Data = new {
                 id = user.Id, firstName = user.FirstName, lastName = user.LastName, email = user.Email,
                 phoneNumber = user.PhoneNumber, address = user.Address, userType = user.UserType,
-                idNumber = user.IdNumber, dateOfBirth = user.DateOfBirth, username = user.Username,
+                hasIdNumber = !string.IsNullOrWhiteSpace(user.IdNumber), idNumberLastFour = user.IdNumber != null && user.IdNumber.Length >= 4 ? user.IdNumber[^4..] : null, dateOfBirth = user.DateOfBirth, username = user.Username,
                 profileCompleted = _userPolicyService.IsProfileComplete(user, hasVerifiedBank),
                 profileCompletion = _userPolicyService.GetProfileCompletion(user, hasVerifiedBank),
                 missingProfileFields = _userPolicyService.GetMissingProfileFields(user, hasVerifiedBank),
@@ -78,16 +78,24 @@ public class UserController : ControllerBase
         if (!string.IsNullOrWhiteSpace(request.IdNumber))
         {
             var id = request.IdNumber.Trim();
-            if (!_userPolicyService.IsValidSouthAfricanId(id))
-                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Enter a valid 13-digit South African ID number." });
+            if (!_userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(id, out var derivedDob))
+                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Enter a valid 13-digit South African ID number for an adult aged 18 or older." });
+            if (await _context.Users.AnyAsync(u => u.Id != user.Id && u.IdNumber == id))
+                return Conflict(new ApiResponse<bool> { Success = false, Message = "We couldn't update these details. Contact support if you believe this is an error." });
             user.IdNumber = id;
+            user.DateOfBirth = derivedDob;
+        }
+        else if (request.DateOfBirth.HasValue && _userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(user.IdNumber, out var existingDob))
+        {
+            if (request.DateOfBirth.Value.Date != existingDob.Date)
+                return BadRequest(new ApiResponse<bool> { Success = false, Message = "Date of birth must match the date encoded in your ID number." });
+            user.DateOfBirth = existingDob;
         }
 
         user.FirstName = request.FirstName.Trim();
         user.LastName = request.LastName.Trim();
         if (!string.IsNullOrWhiteSpace(request.PhoneNumber)) user.PhoneNumber = request.PhoneNumber.Trim();
         if (!string.IsNullOrWhiteSpace(request.Address)) user.Address = request.Address.Trim();
-        if (request.DateOfBirth.HasValue) user.DateOfBirth = DateTime.SpecifyKind(request.DateOfBirth.Value.Date, DateTimeKind.Utc);
         if (!string.IsNullOrWhiteSpace(request.Username)) user.Username = request.Username.Trim();
 
         if (!string.IsNullOrWhiteSpace(request.UserType))
