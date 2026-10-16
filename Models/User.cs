@@ -15,6 +15,7 @@ public class User
     public string? IdNumber { get; set; }
     public string? Address { get; set; }
     public string PasswordHash { get; set; } = string.Empty;
+    public bool PasswordLoginEnabled { get; set; } = true;
     public bool IsVerified { get; set; }
     public bool ProfileCompleted { get; set; }
     public decimal Rating { get; set; }
