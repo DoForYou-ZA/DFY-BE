@@ -606,6 +606,9 @@ public class AuthController : ControllerBase
             HttpContext.RequestAborted);
         if (user == null) return Unauthorized();
 
+        // Bind the single-use step-up challenge to the exact existing account email.
+        var accountEmail = (user.NormalizedEmail ?? user.Email).Trim().ToLowerInvariant();
+
         if (!user.EmailVerified)
             return Conflict(new ApiResponse<object>
             {
