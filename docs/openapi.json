@@ -5970,13 +5970,13 @@
         "type": "object",
         "properties": {
           "currentPassword": {
-            "minLength": 1,
             "maxLength": 72,
+            "minLength": 0,
             "type": "string"
           },
           "newPassword": {
-            "minLength": 12,
             "maxLength": 72,
+            "minLength": 12,
             "type": "string"
           }
         },
