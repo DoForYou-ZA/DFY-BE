@@ -61,7 +61,6 @@ public class UserController : ControllerBase
                 marketingConsentVersion = user.MarketingConsentVersion,
                 rating = user.Rating, completedTasks = user.CompletedTasks, isVerified = user.IsVerified,
                 emailVerified = user.EmailVerified, phoneVerified = user.PhoneVerified,
-                hasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject),
                 isAvailable = user.IsAvailable,
                 bio = user.Bio, serviceCategories = user.ServiceCategories, coverageArea = user.CoverageArea,
                 profilePhotoUrl = user.ProfilePhotoUrl
