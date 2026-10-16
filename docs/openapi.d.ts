@@ -5226,6 +5226,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/user/marketing-consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["MarketingConsentRequest"];
+                    "text/json": components["schemas"]["MarketingConsentRequest"];
+                    "application/*+json": components["schemas"]["MarketingConsentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/user/dashboard/stats": {
         parameters: {
             query?: never;
@@ -5782,6 +5825,9 @@ export interface components {
         MarkTaskReadRequest: {
             /** Format: int32 */
             taskId?: number;
+        };
+        MarketingConsentRequest: {
+            enabled: boolean;
         };
         ObjectApiResponse: {
             success?: boolean;
