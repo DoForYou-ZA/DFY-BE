@@ -1461,6 +1461,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/google/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["GoogleLinkRequest"];
+                    "text/json": components["schemas"]["GoogleLinkRequest"];
+                    "application/*+json": components["schemas"]["GoogleLinkRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/google/register": {
         parameters: {
             query?: never;
@@ -5996,6 +6039,9 @@ export interface components {
         GoogleAuthRequest: {
             idToken: string;
             secondFactorCode?: string | null;
+        };
+        GoogleLinkRequest: {
+            idToken: string;
         };
         GoogleRegisterRequest: {
             idToken: string;
