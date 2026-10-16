@@ -954,6 +954,15 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("ProfilePhotoUrl")
                         .HasColumnType("text");
 
+                    b.Property<string>("PasswordResetTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
                     b.Property<decimal>("Rating")
                         .HasColumnType("numeric");
 
