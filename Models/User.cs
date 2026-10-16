@@ -27,6 +27,8 @@ public class User
     public DateTime? EmailVerificationSendWindowStartAt { get; set; }
     public int EmailVerificationSendCount { get; set; }
     public string? EmailVerificationToken { get; set; }
+    public DateTime? PasswordResetSendWindowStartAt { get; set; }
+    public int PasswordResetSendCount { get; set; }
     public bool EmailVerified { get; set; }
     public string? PhoneVerificationCode { get; set; }
     public DateTime? PhoneVerificationExpiry { get; set; }
@@ -36,6 +38,7 @@ public class User
     public bool AuthenticatorTwoFactorEnabled { get; set; }
     public string? AuthenticatorSecretEncrypted { get; set; }
     public string? PendingAuthenticatorSecretEncrypted { get; set; }
+    public DateTime? PendingAuthenticatorSecretExpiry { get; set; }
     public string? AuthenticatorRecoveryCodeHashes { get; set; }
     public DateTime? AuthenticatorEnrolledAt { get; set; }
     public DateTime? LastTwoFactorVerifiedAt { get; set; }
@@ -61,5 +64,8 @@ public class User
     public string? PasswordResetTokenHash { get; set; }
     public DateTime? PasswordResetExpiry { get; set; }
     public DateTime? PasswordResetSentAt { get; set; }
+    public int FailedLoginAttempts { get; set; }
+    public DateTime? FailedLoginWindowStartAt { get; set; }
+    public DateTime? LoginLockoutUntil { get; set; }
     public string? SecurityStamp { get; set; }
 }
