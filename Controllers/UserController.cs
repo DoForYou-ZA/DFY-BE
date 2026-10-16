@@ -56,6 +56,7 @@ public class UserController : ControllerBase
                 authenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled,
                 hasVerifiedPayoutAccount = hasVerifiedBank,
                 hasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject),
+                hasPasswordLogin = user.PasswordLoginEnabled,
                 marketingConsent = user.MarketingConsent,
                 marketingConsentUpdatedAt = user.MarketingConsentUpdatedAt,
                 marketingConsentVersion = user.MarketingConsentVersion,
