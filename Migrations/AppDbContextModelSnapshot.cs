@@ -963,6 +963,24 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("ServiceCategories")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("TermsAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TermsVersion")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PrivacyAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PrivacyVersion")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("MarketingConsent")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("MarketingConsentUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("UserType")
                         .IsRequired()
                         .HasColumnType("text");
