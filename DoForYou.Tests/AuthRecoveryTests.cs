@@ -543,7 +543,7 @@ public class AuthRecoveryTests
         Assert.IsType<UnauthorizedObjectResult>(replay.Result);
     }
 
-    private static AuthController CreateController(AppDbContext context, IEmailSender emailSender)
+    private static AuthController CreateController(AppDbContext context, IEmailSender emailSender, int? authenticatedUserId = null)
     {
         var settings = new Dictionary<string, string?>
         {
@@ -562,7 +562,15 @@ public class AuthRecoveryTests
             new UserPolicyService(),
             emailSender,
             new AuthenticatorService(configuration));
-        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        var httpContext = new DefaultHttpContext();
+        if (authenticatedUserId.HasValue)
+        {
+            httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(new[]
+            {
+                new Claim(ClaimTypes.NameIdentifier, authenticatedUserId.Value.ToString())
+            }, "TestAuth"));
+        }
+        controller.ControllerContext = new ControllerContext { HttpContext = httpContext };
         return controller;
     }
 
