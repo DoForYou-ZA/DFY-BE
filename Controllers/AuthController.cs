@@ -24,6 +24,8 @@ public class AuthController : ControllerBase
     private readonly IUserPolicyService _userPolicyService;
     private const string CurrentTermsVersion = "terms-v1";
     private const string CurrentPrivacyVersion = "privacy-v1";
+    private const string CurrentTermsVersion = "terms-v1";
+    private const string CurrentPrivacyVersion = "privacy-v1";
 
     public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService)
     {
@@ -201,6 +203,10 @@ public class AuthController : ControllerBase
         if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
             System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters with no more than 72 UTF-8 bytes." });
+
+        if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
+            System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters and no more than 72 UTF-8 bytes." });
 
         if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
             return Ok(new ApiResponse<bool> { Success = false, Message = "New password must be different from the current password" });
