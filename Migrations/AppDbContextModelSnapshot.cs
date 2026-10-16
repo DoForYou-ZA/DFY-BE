@@ -874,6 +874,10 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("Address")
                         .HasColumnType("text");
 
+                    b.Property<bool>("AuthenticatorTwoFactorEnabled")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<string>("Bio")
                         .HasColumnType("text");
 
@@ -911,6 +915,11 @@ namespace DoForYou.API.Migrations
 
                     b.Property<string>("IdNumber")
                         .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasDefaultValue("not_started");
 
                     b.Property<bool>("IsAvailable")
                         .HasColumnType("boolean");
