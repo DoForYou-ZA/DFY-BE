@@ -84,6 +84,7 @@ public class AuthController : ControllerBase
             // Identity and address are collected later through the appropriate onboarding flow.
             Username = string.IsNullOrWhiteSpace(request.Username) ? null : request.Username.Trim(),
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordLoginEnabled = true,
             IsVerified = false,
             ProfileCompleted = false,
             EmailVerified = false,
@@ -170,6 +171,7 @@ public class AuthController : ControllerBase
                 UserType = user.UserType,
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
+                HasPasswordLogin = user.PasswordLoginEnabled,
                 IsVerified = user.IsVerified,
                 EmailVerified = user.EmailVerified,
                 PhoneVerified = user.PhoneVerified,
@@ -438,6 +440,7 @@ public class AuthController : ControllerBase
                             !u.IsArchived)
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(u => u.PasswordHash, newPasswordHash)
+                    .SetProperty(u => u.PasswordLoginEnabled, true)
                     .SetProperty(u => u.EmailVerified, true)
                     .SetProperty(u => u.PasswordResetTokenHash, (string?)null)
                     .SetProperty(u => u.PasswordResetExpiry, (DateTime?)null)
@@ -456,6 +459,7 @@ public class AuthController : ControllerBase
         else
         {
             user.PasswordHash = newPasswordHash;
+            user.PasswordLoginEnabled = true;
             user.EmailVerified = true;
             user.PasswordResetTokenHash = null;
             user.PasswordResetExpiry = null;
@@ -617,6 +621,7 @@ public class AuthController : ControllerBase
             UserType = userType,
             GoogleSubject = googlePayload.Subject,
             PasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))),
+            PasswordLoginEnabled = false,
             IsVerified = false,
             ProfileCompleted = false,
             EmailVerified = true,
@@ -928,6 +933,7 @@ public class AuthController : ControllerBase
                 UserType = user.UserType,
                 CreatedAt = user.CreatedAt,
                 LastLoginAt = user.LastLoginAt,
+                HasPasswordLogin = user.PasswordLoginEnabled,
                 IsVerified = user.IsVerified,
                 EmailVerified = user.EmailVerified,
                 PhoneVerified = user.PhoneVerified,
@@ -949,6 +955,12 @@ public class AuthController : ControllerBase
 
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return Unauthorized();
+        if (!user.PasswordLoginEnabled)
+            return Conflict(new ApiResponse<bool>
+            {
+                Success = false,
+                Message = "This account currently uses Google sign-in. Use Forgot password to add an email-and-password sign-in method."
+            });
 
         if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
             System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
@@ -1047,10 +1059,10 @@ public class AuthController : ControllerBase
             (u.NormalizedEmail == null && u.Email.ToLower() == cleanEmail));
 
         // Verify against a dummy hash for unknown emails to reduce timing-based enumeration.
-        var hashToVerify = user?.PasswordHash ?? DummyPasswordHash;
+        var hashToVerify = user is { PasswordLoginEnabled: true } ? user.PasswordHash : DummyPasswordHash;
         var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password ?? string.Empty, hashToVerify);
 
-        if (user == null || user.IsArchived)
+        if (user == null || user.IsArchived || !user.PasswordLoginEnabled)
         {
             return Unauthorized(new AuthResponse { Success = false, Message = "Invalid email or password" });
         }
@@ -1275,6 +1287,7 @@ public class AuthController : ControllerBase
             UserType = user.UserType,
             CreatedAt = user.CreatedAt,
             LastLoginAt = user.LastLoginAt,
+            HasPasswordLogin = user.PasswordLoginEnabled,
             IsVerified = user.IsVerified,
             EmailVerified = user.EmailVerified,
             PhoneVerified = user.PhoneVerified,
