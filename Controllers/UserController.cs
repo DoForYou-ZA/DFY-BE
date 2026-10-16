@@ -12,6 +12,7 @@ namespace DoForYou.API.Controllers;
 [ApiController]
 [Route("api/v1/user")]
 [Authorize]
+[ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 public class UserController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -54,6 +55,10 @@ public class UserController : ControllerBase
                 identityVerificationStatus = user.IdentityVerificationStatus,
                 authenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled,
                 hasVerifiedPayoutAccount = hasVerifiedBank,
+                hasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject),
+                marketingConsent = user.MarketingConsent,
+                marketingConsentUpdatedAt = user.MarketingConsentUpdatedAt,
+                marketingConsentVersion = user.MarketingConsentVersion,
                 rating = user.Rating, completedTasks = user.CompletedTasks, isVerified = user.IsVerified,
                 emailVerified = user.EmailVerified, phoneVerified = user.PhoneVerified,
                 hasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject),
@@ -119,6 +124,52 @@ public class UserController : ControllerBase
         user.ProfileCompleted = _userPolicyService.IsProfileComplete(user);
         await _context.SaveChangesAsync();
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Profile updated successfully" });
+    }
+
+    [HttpPut("marketing-consent")]
+    public async Task<ActionResult<ApiResponse<object>>> UpdateMarketingConsent([FromBody] MarketingConsentRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null || user.IsArchived) return Unauthorized();
+
+        const string currentMarketingVersion = "marketing-v1";
+        var enabled = request.Enabled;
+        if (user.MarketingConsent == enabled &&
+            string.Equals(user.MarketingConsentVersion, currentMarketingVersion, StringComparison.Ordinal))
+        {
+            return Ok(new ApiResponse<object>
+            {
+                Success = true,
+                Data = new { enabled = user.MarketingConsent, version = user.MarketingConsentVersion, updatedAt = user.MarketingConsentUpdatedAt },
+                Message = "Marketing preference is already up to date."
+            });
+        }
+
+        var now = DateTime.UtcNow;
+        user.MarketingConsent = enabled;
+        user.MarketingConsentUpdatedAt = now;
+        user.MarketingConsentVersion = currentMarketingVersion;
+        _context.UserConsentEvents.Add(new UserConsentEvent
+        {
+            UserId = user.Id,
+            ConsentType = "marketing",
+            Accepted = enabled,
+            Version = currentMarketingVersion,
+            RecordedAt = now,
+            Source = "account-settings"
+        });
+        await _context.SaveChangesAsync();
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new { enabled = user.MarketingConsent, version = user.MarketingConsentVersion, updatedAt = user.MarketingConsentUpdatedAt },
+            Message = enabled
+                ? "Optional marketing updates are enabled."
+                : "Optional marketing updates have been turned off."
+        });
     }
 
     [HttpGet("dashboard/stats")]
@@ -217,6 +268,12 @@ public class UserController : ControllerBase
         return int.TryParse(value, out var id) ? id : null;
     }
 
+}
+
+public sealed class MarketingConsentRequest
+{
+    [System.ComponentModel.DataAnnotations.Required]
+    public bool Enabled { get; set; }
 }
 
 public class UpdateProfileRequest
