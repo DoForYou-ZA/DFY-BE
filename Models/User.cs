@@ -45,6 +45,8 @@ public class User
     public DateTime? IdentityVerificationLastEventAt { get; set; }
     public string? IdentityVerificationHandoffTokenHash { get; set; }
     public DateTime? IdentityVerificationHandoffExpiry { get; set; }
+    public DateTime? IdentityVerificationAttemptWindowStartAt { get; set; }
+    public int IdentityVerificationAttemptCount { get; set; }
     public bool AuthenticatorTwoFactorEnabled { get; set; }
     public string? AuthenticatorSecretEncrypted { get; set; }
     public string? PendingAuthenticatorSecretEncrypted { get; set; }
