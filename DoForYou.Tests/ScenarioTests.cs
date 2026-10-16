@@ -49,6 +49,151 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task BothAccountCanPostWithoutRunnerIdentityOrPayoutSetup()
+    {
+        using var context = CreateContext(nameof(BothAccountCanPostWithoutRunnerIdentityOrPayoutSetup));
+        var user = CreateUser(1, "both", false, "both-without-kyc@test.com");
+        user.IdNumber = null;
+        user.DateOfBirth = null;
+        user.Address = null;
+        user.IdentityVerificationStatus = "not_started";
+        user.AuthenticatorTwoFactorEnabled = false;
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var response = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Success, response.Message);
+        Assert.Single(await context.Tasks.ToListAsync());
+        Assert.Null(user.IdNumber);
+        Assert.Null(user.Address);
+        Assert.Equal("not_started", user.IdentityVerificationStatus);
+        Assert.False(user.AuthenticatorTwoFactorEnabled);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task UnverifiedBothAccountCannotPostAndCreatesNoTask()
+    {
+        using var context = CreateContext(nameof(UnverifiedBothAccountCannotPostAndCreatesNoTask));
+        var user = CreateUser(1, "both", false, "unverified-both@test.com");
+        user.EmailVerified = false;
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var forbidden = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(await context.Tasks.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task RunnerOnlyAccountCannotPostTask()
+    {
+        using var context = CreateContext(nameof(RunnerOnlyAccountCannotPostTask));
+        var user = CreateUser(1, "runner", true, "runner-only@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var forbidden = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(await context.Tasks.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task TaskBudgetAboveMaximumIsRejectedBeforeAnyTaskIsCreated()
+    {
+        using var context = CreateContext(nameof(TaskBudgetAboveMaximumIsRejectedBeforeAnyTaskIsCreated));
+        var user = CreateUser(1, "creator", true, "budget-limit@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 100000.01m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(badRequest.Value);
+        Assert.False(response.Success);
+        Assert.Equal("INVALID_TASK_BUDGET", response.Error);
+        Assert.Empty(await context.Tasks.ToListAsync());
+        Assert.Empty(await context.PaymentAttempts.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task TaskDateInsideThirtyMinuteBoundaryIsRejectedWithoutSideEffects()
+    {
+        using var context = CreateContext(nameof(TaskDateInsideThirtyMinuteBoundaryIsRejectedWithoutSideEffects));
+        var user = CreateUser(1, "creator", true, "task-date-boundary@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddMinutes(5),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(badRequest.Value);
+        Assert.Equal("INVALID_TASK_DATE", response.Error);
+        Assert.Empty(await context.Tasks.ToListAsync());
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task Notifications_LinksLegacyPayoutByMatchingTaskDescription()
     {
         using var context = CreateContext(nameof(Notifications_LinksLegacyPayoutByMatchingTaskDescription));
