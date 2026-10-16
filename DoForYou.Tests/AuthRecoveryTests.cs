@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -615,6 +616,105 @@ public class AuthRecoveryTests
         Assert.IsType<UnauthorizedObjectResult>(result.Result);
         Assert.Null(user.SensitiveActionTokenHash);
         Assert.Null(user.SensitiveActionTokenExpiry);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Authenticator_totp_code_cannot_be_replayed_to_create_a_second_session()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Jwt:Key"] = "test-signing-key-that-is-at-least-32-characters-long",
+                ["Jwt:Issuer"] = "DoForYou",
+                ["Jwt:Audience"] = "DoForYou",
+                ["Frontend:BaseUrl"] = "https://dfy-fe-staging.onrender.com",
+                ["Authenticator:EncryptionKey"] = Convert.ToBase64String(Enumerable.Range(0, 32).Select(i => (byte)i).ToArray())
+            })
+            .Build();
+        var authenticator = new AuthenticatorService(configuration);
+        const string secret = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+        var user = new User
+        {
+            FirstName = "TOTP",
+            LastName = "Replay",
+            Email = "totp-replay@example.com",
+            NormalizedEmail = "totp-replay@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "runner",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-valid-unique-passphrase-2026"),
+            EmailVerified = true,
+            AuthenticatorTwoFactorEnabled = true,
+            AuthenticatorSecretEncrypted = authenticator.EncryptSecret(secret),
+            IdentityVerificationStatus = "passed",
+            SecurityStamp = "existing-session-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = new AuthController(
+            context,
+            configuration,
+            NullLogger<AuthController>.Instance,
+            new NoOpNotificationService(),
+            new UserPolicyService(),
+            new RecordingEmailSender(),
+            authenticator);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        var code = GenerateTotpCode(secret, DateTimeOffset.UtcNow);
+
+        var first = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "A-valid-unique-passphrase-2026",
+            SecondFactorCode = code
+        });
+        Assert.IsType<OkObjectResult>(first.Result);
+        Assert.NotNull(user.LastAuthenticatorTimeStep);
+
+        var replay = await controller.Login(new LoginRequest
+        {
+            Email = user.Email,
+            Password = "A-valid-unique-passphrase-2026",
+            SecondFactorCode = code
+        });
+        Assert.IsType<UnauthorizedObjectResult>(replay.Result);
+    }
+
+    private static string GenerateTotpCode(string base32Secret, DateTimeOffset now)
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        var keyBytes = new List<byte>();
+        var buffer = 0;
+        var bits = 0;
+        foreach (var character in base32Secret)
+        {
+            var value = alphabet.IndexOf(character);
+            if (value < 0) throw new ArgumentException("Invalid Base32 test secret.", nameof(base32Secret));
+            buffer = (buffer << 5) | value;
+            bits += 5;
+            if (bits >= 8)
+            {
+                bits -= 8;
+                keyBytes.Add((byte)((buffer >> bits) & 0xff));
+            }
+        }
+
+        var key = keyBytes.ToArray();
+        Span<byte> counter = stackalloc byte[8];
+        BinaryPrimitives.WriteInt64BigEndian(counter, now.ToUnixTimeSeconds() / 30);
+        var hash = HMACSHA1.HashData(key, counter);
+        var offset = hash[^1] & 0x0f;
+        var binary = ((hash[offset] & 0x7f) << 24)
+            | ((hash[offset + 1] & 0xff) << 16)
+            | ((hash[offset + 2] & 0xff) << 8)
+            | (hash[offset + 3] & 0xff);
+        CryptographicOperations.ZeroMemory(key);
+        CryptographicOperations.ZeroMemory(hash);
+        return (binary % 1_000_000).ToString("D6", System.Globalization.CultureInfo.InvariantCulture);
     }
 
     private static AuthController CreateController(AppDbContext context, IEmailSender emailSender, int? authenticatedUserId = null)
