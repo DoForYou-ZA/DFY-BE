@@ -57,11 +57,113 @@ public class AuthRecoveryTests
         Assert.NotNull(user.EmailVerificationToken);
         Assert.NotNull(user.EmailVerificationExpiry);
         Assert.NotNull(user.EmailVerificationSentAt);
+        Assert.Equal(1, user.EmailVerificationSendCount);
+        Assert.NotNull(user.EmailVerificationSendWindowStartAt);
         var emailBody = Assert.Single(emailSender.Messages).Body;
         var tokenLine = emailBody.Split('\n').Single(line => line.Contains("?token=", StringComparison.Ordinal));
         var rawToken = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
         Assert.NotEqual(rawToken, user.EmailVerificationToken);
         Assert.Contains("verify-email", emailBody);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Resend_verification_is_throttled_within_60_seconds()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "resend@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-unique-test-passphrase-2026"),
+            EmailVerified = false,
+            EmailVerificationSentAt = now.AddSeconds(-59),
+            EmailVerificationSendWindowStartAt = now.AddHours(-1),
+            EmailVerificationSendCount = 1
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+        var result = await controller.ResendVerification(new ResendVerificationRequest { Email = user.Email });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Empty(emailSender.Messages);
+        Assert.Equal(1, user.EmailVerificationSendCount);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Resend_verification_allows_send_after_60_seconds_and_increments_budget()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "resend-allowed@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-unique-test-passphrase-2026"),
+            EmailVerified = false,
+            EmailVerificationSentAt = now.AddSeconds(-61),
+            EmailVerificationSendWindowStartAt = now.AddHours(-1),
+            EmailVerificationSendCount = 1
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+        var result = await controller.ResendVerification(new ResendVerificationRequest { Email = user.Email });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Single(emailSender.Messages);
+        Assert.Equal(2, user.EmailVerificationSendCount);
+        Assert.True(user.EmailVerificationExpiry > DateTime.UtcNow);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Resend_verification_stops_at_five_sends_per_24_hours()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var now = DateTime.UtcNow;
+        var user = new User
+        {
+            FirstName = "Test",
+            LastName = "User",
+            Email = "resend-limit@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-unique-test-passphrase-2026"),
+            EmailVerified = false,
+            EmailVerificationSentAt = now.AddMinutes(-2),
+            EmailVerificationSendWindowStartAt = now.AddHours(-2),
+            EmailVerificationSendCount = 5
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+        var result = await controller.ResendVerification(new ResendVerificationRequest { Email = user.Email });
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Empty(emailSender.Messages);
+        Assert.Equal(5, user.EmailVerificationSendCount);
     }
 
     [Fact]
