@@ -6,6 +6,8 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.WebUtilities;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
 using DoForYou.API.Models;
@@ -23,16 +25,18 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly INotificationService _notificationService;
     private readonly IUserPolicyService _userPolicyService;
+    private readonly IEmailSender _emailSender;
     private const string CurrentTermsVersion = "terms-v1";
     private const string CurrentPrivacyVersion = "privacy-v1";
 
-    public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService)
+    public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService, IEmailSender emailSender)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
         _notificationService = notificationService;
         _userPolicyService = userPolicyService;
+        _emailSender = emailSender;
     }
 
     [EnableRateLimiting("auth")]
@@ -74,6 +78,7 @@ public class AuthController : ControllerBase
         if (normalizedPhone == null)
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African mobile number." });
 
+        var verificationToken = CreateSecureToken();
         var user = new User
         {
             FirstName = firstName,
@@ -97,12 +102,24 @@ public class AuthController : ControllerBase
             PrivacyVersion = request.PrivacyVersion.Trim(),
             MarketingConsent = request.MarketingConsent,
             MarketingConsentUpdatedAt = request.MarketingConsent ? now : null,
+            EmailVerificationToken = HashToken(verificationToken),
+            EmailVerificationExpiry = now.AddHours(24),
+            SecurityStamp = CreateSecureToken(),
             Roles = "User",
             CreatedAt = now
         };
 
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
+
+        try
+        {
+            await SendVerificationEmailAsync(user.Email, verificationToken, HttpContext.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Registration verification email could not be sent for user {UserId}", user.Id);
+        }
 
         // Do not fire-and-forget work that uses the request-scoped DbContext.
         // Await the admin notification while the request scope is alive, but do
@@ -149,6 +166,98 @@ public class AuthController : ControllerBase
             },
             Message = "Registration successful"
         });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("verify-email")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> VerifyEmail([FromBody] VerifyEmailRequest request)
+    {
+        var tokenHash = HashToken(request.Token);
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            u.EmailVerificationToken == tokenHash &&
+            u.EmailVerificationExpiry != null &&
+            u.EmailVerificationExpiry > DateTime.UtcNow &&
+            !u.IsArchived);
+        if (user == null)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "This verification link is invalid or has expired. Request a new one." });
+
+        user.EmailVerified = true;
+        user.EmailVerificationToken = null;
+        user.EmailVerificationExpiry = null;
+        user.SecurityStamp = CreateSecureToken();
+        await _context.SaveChangesAsync();
+
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Email verified. You can now sign in." });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("resend-verification")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> ResendVerification([FromBody] ResendVerificationRequest request)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
+        if (user != null && !user.EmailVerified)
+        {
+            var token = CreateSecureToken();
+            user.EmailVerificationToken = HashToken(token);
+            user.EmailVerificationExpiry = DateTime.UtcNow.AddHours(24);
+            await _context.SaveChangesAsync();
+            try { await SendVerificationEmailAsync(user.Email, token, HttpContext.RequestAborted); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Verification resend failed for user {UserId}", user.Id); }
+        }
+
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If the account exists and needs verification, an email will be sent shortly." });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
+        if (user != null)
+        {
+            var token = CreateSecureToken();
+            user.PasswordResetTokenHash = HashToken(token);
+            user.PasswordResetExpiry = DateTime.UtcNow.AddMinutes(30);
+            await _context.SaveChangesAsync();
+            try { await SendPasswordResetEmailAsync(user.Email, token, HttpContext.RequestAborted); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Password reset email could not be sent for user {UserId}", user.Id); }
+        }
+
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "If an account matches that email, password reset instructions will be sent shortly." });
+    }
+
+    [EnableRateLimiting("auth")]
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<bool>>> ResetPassword([FromBody] ResetPasswordRequest request)
+    {
+        if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
+            Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters and no more than 72 UTF-8 bytes." });
+
+        var tokenHash = HashToken(request.Token);
+        var user = await _context.Users.FirstOrDefaultAsync(u =>
+            u.PasswordResetTokenHash == tokenHash &&
+            u.PasswordResetExpiry != null &&
+            u.PasswordResetExpiry > DateTime.UtcNow &&
+            !u.IsArchived);
+        if (user == null)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
+
+        user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.PasswordResetTokenHash = null;
+        user.PasswordResetExpiry = null;
+        user.EmailVerificationToken = null;
+        user.EmailVerificationExpiry = null;
+        user.SecurityStamp = CreateSecureToken();
+        await _context.SaveChangesAsync();
+
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password reset successfully. Please sign in with your new password." });
     }
 
     [HttpPost("refresh")]
@@ -215,6 +324,7 @@ public class AuthController : ControllerBase
             return Ok(new ApiResponse<bool> { Success = false, Message = "Current password is incorrect" });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+        user.SecurityStamp = CreateSecureToken();
         await _context.SaveChangesAsync();
 
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password changed successfully" });
@@ -228,9 +338,7 @@ public class AuthController : ControllerBase
             return BadRequest("Invalid request");
         
         // Clean email - remove mailto: prefix if present
-        var cleanEmail = request.Email?.Replace("mailto:", "").Trim();
-        
-        cleanEmail = cleanEmail?.ToLowerInvariant();
+        var cleanEmail = request.Email?.Trim().ToLowerInvariant();
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail);
         // Perform a hash verification for unknown accounts to reduce timing-based enumeration.
         var hashToVerify = user?.PasswordHash ?? DummyPasswordHash;
@@ -242,6 +350,17 @@ public class AuthController : ControllerBase
             {
                 Success = false,
                 Message = "Invalid email or password"
+            });
+        }
+
+        var isAdminAccount = user.Roles?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Any(role => string.Equals(role.Trim(), "Admin", StringComparison.OrdinalIgnoreCase)) == true;
+        if (!isAdminAccount && !user.EmailVerified)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new AuthResponse
+            {
+                Success = false,
+                Message = "Please verify your email before signing in. You can request a new verification email."
             });
         }
 
@@ -280,6 +399,34 @@ public class AuthController : ControllerBase
         });
     }
 
+    private static string CreateSecureToken() =>
+        WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
+
+    private static string HashToken(string token) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token))).ToLowerInvariant();
+
+    private string GetPublicFrontendUrl()
+    {
+        var value = Environment.GetEnvironmentVariable("DFY_PUBLIC_URL")
+            ?? _configuration["Frontend:BaseUrl"]
+            ?? "https://dfy-fe-staging.onrender.com";
+        return value.TrimEnd('/');
+    }
+
+    private Task SendVerificationEmailAsync(string email, string token, CancellationToken cancellationToken)
+    {
+        var link = $"{GetPublicFrontendUrl()}/verify-email?token={Uri.EscapeDataString(token)}";
+        var body = $"Welcome to DoForYou.\n\nVerify your email address using this link (valid for 24 hours):\n{link}\n\nIf you did not create this account, you can ignore this email.";
+        return _emailSender.SendAsync(email, "Verify your DoForYou email", body, cancellationToken);
+    }
+
+    private Task SendPasswordResetEmailAsync(string email, string token, CancellationToken cancellationToken)
+    {
+        var link = $"{GetPublicFrontendUrl()}/reset-password?token={Uri.EscapeDataString(token)}";
+        var body = $"A password reset was requested for your DoForYou account.\n\nUse this link within 30 minutes to choose a new password:\n{link}\n\nIf you did not request this, you can ignore this email. Your password will not change.";
+        return _emailSender.SendAsync(email, "Reset your DoForYou password", body, cancellationToken);
+    }
+
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(
         "not-a-real-user-password-never-use-this-to-sign-in", workFactor: 11);
 
@@ -303,7 +450,8 @@ public class AuthController : ControllerBase
         var claims = new List<Claim>
         {
             new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-            new Claim(ClaimTypes.Email, user.Email)
+            new Claim(ClaimTypes.Email, user.Email),
+            new Claim("security_stamp", user.SecurityStamp ?? string.Empty)
         };
 
         // Add each role as a separate claim
