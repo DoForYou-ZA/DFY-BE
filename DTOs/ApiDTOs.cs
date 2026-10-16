@@ -195,11 +195,14 @@ public class PaginatedResponse<T>
 
 public class LoginRequest
 {
-    [Required, EmailAddress]
+    [Required, EmailAddress, StringLength(254)]
     public string Email { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(200)]
     public string Password { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string? SecondFactorCode { get; set; }
 }
 
 public class RegisterRequest
@@ -243,6 +246,55 @@ public class RegisterRequest
     public bool MarketingConsent { get; set; }
 }
 
+public class GoogleAuthRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+}
+
+public class GoogleRegisterRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+    [Required, StringLength(50, MinimumLength = 1)]
+    public string FirstName { get; set; } = string.Empty;
+    [Required, StringLength(50, MinimumLength = 1)]
+    public string LastName { get; set; } = string.Empty;
+    [Required, StringLength(20)]
+    public string PhoneNumber { get; set; } = string.Empty;
+    [Required, StringLength(10)]
+    public string UserType { get; set; } = string.Empty;
+    [Required]
+    public bool TermsAccepted { get; set; }
+    [Required]
+    public bool PrivacyAccepted { get; set; }
+    [Required, StringLength(40)]
+    public string TermsVersion { get; set; } = string.Empty;
+    [Required, StringLength(40)]
+    public string PrivacyVersion { get; set; } = string.Empty;
+    public bool MarketingConsent { get; set; }
+}
+
+public class TwoFactorSetupRequest
+{
+    [Required, StringLength(72, MinimumLength = 12)]
+    public string CurrentPassword { get; set; } = string.Empty;
+}
+
+public class TwoFactorCodeRequest
+{
+    [Required, StringLength(20, MinimumLength = 6)]
+    public string Code { get; set; } = string.Empty;
+}
+
+public class DisableTwoFactorRequest
+{
+    [Required, StringLength(72, MinimumLength = 12)]
+    public string CurrentPassword { get; set; } = string.Empty;
+    [Required, StringLength(20, MinimumLength = 6)]
+    public string Code { get; set; } = string.Empty;
+}
+
 public class VerifyEmailRequest
 {
     [Required, StringLength(200)]
@@ -273,6 +325,8 @@ public class AccountResetPasswordRequest
 public class AuthResponse
 {
     public bool Success { get; set; }
+    public bool RequiresTwoFactor { get; set; }
+    public bool RequiresAccountSetup { get; set; }
     public string? Token { get; set; }
     public UserDto? User { get; set; }
     public string? Message { get; set; }
@@ -305,6 +359,7 @@ public class UserDto
     public bool PhoneVerified { get; set; }
     public string IdentityVerificationStatus { get; set; } = "not_started";
     public bool AuthenticatorTwoFactorEnabled { get; set; }
+    public bool HasGoogleLogin { get; set; }
 }
 
 
