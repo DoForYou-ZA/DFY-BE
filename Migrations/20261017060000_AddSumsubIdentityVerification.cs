@@ -60,6 +60,19 @@ namespace DoForYou.API.Migrations
                 type: "timestamp with time zone",
                 nullable: true);
 
+            migrationBuilder.AddColumn<DateTime>(
+                name: "IdentityVerificationAttemptWindowStartAt",
+                table: "Users",
+                type: "timestamp with time zone",
+                nullable: true);
+
+            migrationBuilder.AddColumn<int>(
+                name: "IdentityVerificationAttemptCount",
+                table: "Users",
+                type: "integer",
+                nullable: false,
+                defaultValue: 0);
+
             migrationBuilder.CreateTable(
                 name: "IdentityVerificationEvents",
                 columns: table => new
@@ -120,6 +133,8 @@ namespace DoForYou.API.Migrations
             migrationBuilder.DropColumn(name: "IdentityVerificationLastEventAt", table: "Users");
             migrationBuilder.DropColumn(name: "IdentityVerificationHandoffTokenHash", table: "Users");
             migrationBuilder.DropColumn(name: "IdentityVerificationHandoffExpiry", table: "Users");
+            migrationBuilder.DropColumn(name: "IdentityVerificationAttemptWindowStartAt", table: "Users");
+            migrationBuilder.DropColumn(name: "IdentityVerificationAttemptCount", table: "Users");
         }
     }
 }
