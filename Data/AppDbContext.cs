@@ -42,14 +42,26 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
+        NormalizeUserEmails();
         NormalizeUtcDates();
         return base.SaveChanges();
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        NormalizeUserEmails();
         NormalizeUtcDates();
         return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void NormalizeUserEmails()
+    {
+        foreach (var entry in ChangeTracker.Entries<User>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.Email = entry.Entity.Email.Trim();
+            entry.Entity.NormalizedEmail = entry.Entity.Email.ToLowerInvariant();
+        }
     }
 
     private void NormalizeUtcDates()
