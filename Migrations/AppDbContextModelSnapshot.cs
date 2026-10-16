@@ -896,6 +896,9 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("EmailVerificationExpiry")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("EmailVerificationSentAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("EmailVerificationToken")
                         .HasColumnType("text");
 
@@ -958,6 +961,9 @@ namespace DoForYou.API.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("PasswordResetExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PasswordResetSentAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SecurityStamp")
