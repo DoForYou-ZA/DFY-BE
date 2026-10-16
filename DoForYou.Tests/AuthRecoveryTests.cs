@@ -33,9 +33,6 @@ public class AuthRecoveryTests
             Email = "new.creator@example.com",
             PhoneNumber = "0821234567",
             UserType = "creator",
-            IdNumber = "8001015009087",
-            DateOfBirth = new DateTime(1980, 1, 1),
-            Address = "15 Church Street, Pretoria",
             Password = "A-strong-unique-passphrase-2026",
             TermsAccepted = true,
             PrivacyAccepted = true,
@@ -52,6 +49,11 @@ public class AuthRecoveryTests
         Assert.Null(response.Token);
         Assert.False(user.EmailVerified);
         Assert.False(user.PhoneVerified);
+        Assert.Null(user.IdNumber);
+        Assert.Null(user.Address);
+        Assert.Null(user.DateOfBirth);
+        Assert.Equal("not_started", user.IdentityVerificationStatus);
+        Assert.False(user.AuthenticatorTwoFactorEnabled);
         Assert.NotNull(user.EmailVerificationToken);
         Assert.NotNull(user.EmailVerificationExpiry);
         Assert.NotNull(user.EmailVerificationSentAt);
