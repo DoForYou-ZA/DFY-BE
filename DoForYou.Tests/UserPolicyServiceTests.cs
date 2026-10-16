@@ -123,4 +123,16 @@ public class UserPolicyServiceTests
         Assert.False(_policy.CanAcceptTasks(user));
     }
 
+    [Fact]
+    public void DOB_must_match_the_valid_adult_id()
+    {
+        var user = CompleteUser("both");
+        user.DateOfBirth = new DateTime(1981, 1, 1);
+
+        Assert.False(_policy.IsProfileComplete(user));
+        Assert.Contains("dateOfBirth", _policy.GetMissingProfileFields(user));
+        Assert.False(_policy.CanCreateTasks(user));
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
 }
