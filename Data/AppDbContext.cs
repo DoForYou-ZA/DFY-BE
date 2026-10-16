@@ -26,6 +26,7 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<Testimonial> Testimonials { get; set; }
+    public DbSet<UserConsentEvent> UserConsentEvents { get; set; } = null!;
 
     public override int SaveChanges()
     {
@@ -74,6 +75,16 @@ public class AppDbContext : DbContext
             .HasIndex(user => user.GoogleSubject)
             .IsUnique()
             .HasDatabaseName("IX_Users_GoogleSubject");
+
+        modelBuilder.Entity<UserConsentEvent>()
+            .HasIndex(e => new { e.UserId, e.ConsentType, e.RecordedAt })
+            .HasDatabaseName("IX_UserConsentEvents_UserId_ConsentType_RecordedAt");
+
+        modelBuilder.Entity<UserConsentEvent>()
+            .HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         modelBuilder.Entity<Models.Task>()
             .HasQueryFilter(t => !t.IsDeleted);
