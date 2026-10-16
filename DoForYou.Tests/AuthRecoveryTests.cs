@@ -46,6 +46,9 @@ public class AuthRecoveryTests
         Assert.NotNull(user.PasswordResetExpiry);
         Assert.True(user.PasswordResetExpiry > DateTime.UtcNow);
 
+        await controller.ForgotPassword(new ForgotPasswordRequest { Email = "reset@example.com" });
+        Assert.Single(emailSender.Messages);
+
         var emailBody = Assert.Single(emailSender.Messages).Body;
         var tokenLine = emailBody.Split('\n').Single(line => line.Contains("?token=", StringComparison.Ordinal));
         var token = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
