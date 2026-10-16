@@ -763,8 +763,11 @@ public class AuthController : ControllerBase
         try { secret = _authenticatorService.DecryptSecret(pendingEncrypted); }
         catch (CryptographicException) { return StatusCode(503, new ApiResponse<object> { Success = false, Message = "Authenticator setup cannot be decrypted. Contact support." }); }
         catch (FormatException) { return StatusCode(503, new ApiResponse<object> { Success = false, Message = "Authenticator setup cannot be decrypted. Contact support." }); }
-        if (!_authenticatorService.VerifyCode(secret, request.Code, new DateTimeOffset(now)))
+        if (!_authenticatorService.TryVerifyCode(secret, request.Code, out var matchedStep, new DateTimeOffset(now)))
+        {
+            await RecordFailedLoginAsync(user.Id);
             return BadRequest(new ApiResponse<object> { Success = false, Message = "The authenticator code is invalid or expired. Check your device time and try again." });
+        }
 
         var recoveryCodes = Enumerable.Range(0, 10).Select(_ => _authenticatorService.GenerateRecoveryCode()).ToArray();
         var serializedRecoveryHashes = System.Text.Json.JsonSerializer.Serialize(
@@ -779,9 +782,11 @@ public class AuthController : ControllerBase
                             !u.AuthenticatorTwoFactorEnabled &&
                             u.PendingAuthenticatorSecretEncrypted == pendingEncrypted &&
                             u.PendingAuthenticatorSecretExpiry != null &&
-                            u.PendingAuthenticatorSecretExpiry > now)
+                            u.PendingAuthenticatorSecretExpiry > now &&
+                            (u.LastAuthenticatorTimeStep == null || u.LastAuthenticatorTimeStep < matchedStep))
                 .ExecuteUpdateAsync(setters => setters
                     .SetProperty(u => u.AuthenticatorSecretEncrypted, pendingEncrypted)
+                    .SetProperty(u => u.LastAuthenticatorTimeStep, (long?)matchedStep)
                     .SetProperty(u => u.PendingAuthenticatorSecretEncrypted, (string?)null)
                     .SetProperty(u => u.PendingAuthenticatorSecretExpiry, (DateTime?)null)
                     .SetProperty(u => u.AuthenticatorRecoveryCodeHashes, serializedRecoveryHashes)
@@ -794,7 +799,10 @@ public class AuthController : ControllerBase
         }
         else
         {
+            if (user.LastAuthenticatorTimeStep.HasValue && user.LastAuthenticatorTimeStep.Value >= matchedStep)
+                return Conflict(new ApiResponse<object> { Success = false, Message = "This authenticator code has already been used. Wait for a new code and try again." });
             user.AuthenticatorSecretEncrypted = pendingEncrypted;
+            user.LastAuthenticatorTimeStep = matchedStep;
             user.PendingAuthenticatorSecretEncrypted = null;
             user.PendingAuthenticatorSecretExpiry = null;
             user.AuthenticatorRecoveryCodeHashes = serializedRecoveryHashes;
@@ -847,7 +855,10 @@ public class AuthController : ControllerBase
             return Unauthorized(new ApiResponse<bool> { Success = false, Message = "Confirm your current password before disabling authenticator security." });
 
         if (!await ValidateSecondFactorAsync(user, request.Code))
+        {
+            await RecordFailedLoginAsync(user.Id);
             return Unauthorized(new ApiResponse<bool> { Success = false, Message = "The authenticator or recovery code is invalid." });
+        }
 
         user.AuthenticatorTwoFactorEnabled = false;
         user.AuthenticatorSecretEncrypted = null;
@@ -855,6 +866,7 @@ public class AuthController : ControllerBase
         user.AuthenticatorRecoveryCodeHashes = null;
         user.AuthenticatorEnrolledAt = null;
         user.LastTwoFactorVerifiedAt = null;
+        user.LastAuthenticatorTimeStep = null;
         user.SecurityStamp = CreateSecureToken();
         await _context.SaveChangesAsync();
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Authenticator disabled. Sign in again to refresh your session." });
@@ -993,6 +1005,7 @@ public class AuthController : ControllerBase
         {
             if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
             {
+                await RecordFailedLoginAsync(user.Id);
                 return Unauthorized(new ApiResponse<object>
                 {
                     Success = false,
