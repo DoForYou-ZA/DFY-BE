@@ -29,10 +29,19 @@ public class AuthController : ControllerBase
     private readonly IUserPolicyService _userPolicyService;
     private readonly IEmailSender _emailSender;
     private readonly IAuthenticatorService _authenticatorService;
+    private readonly IPasswordPolicyService _passwordPolicyService;
     private const string CurrentTermsVersion = "terms-v1";
     private const string CurrentPrivacyVersion = "privacy-v1";
 
-    public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService, IEmailSender emailSender, IAuthenticatorService authenticatorService)
+    public AuthController(
+        AppDbContext context,
+        IConfiguration configuration,
+        ILogger<AuthController> logger,
+        INotificationService notificationService,
+        IUserPolicyService userPolicyService,
+        IEmailSender emailSender,
+        IAuthenticatorService authenticatorService,
+        IPasswordPolicyService passwordPolicyService)
     {
         _context = context;
         _configuration = configuration;
@@ -41,6 +50,7 @@ public class AuthController : ControllerBase
         _userPolicyService = userPolicyService;
         _emailSender = emailSender;
         _authenticatorService = authenticatorService;
+        _passwordPolicyService = passwordPolicyService;
     }
 
     [EnableRateLimiting("auth")]
@@ -71,6 +81,13 @@ public class AuthController : ControllerBase
         var normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
         if (normalizedPhone == null)
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African mobile number." });
+
+        var passwordPolicy = await _passwordPolicyService.EvaluateAsync(request.Password, HttpContext.RequestAborted);
+        if (passwordPolicy.Status == PasswordPolicyStatus.Compromised)
+            return BadRequest(new AuthResponse { Success = false, Message = "Choose a password that is not common or known to have appeared in a data breach." });
+        if (passwordPolicy.Status == PasswordPolicyStatus.Unavailable)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new AuthResponse { Success = false, Message = "Password safety checks are temporarily unavailable. Please try again shortly." });
 
         var verificationToken = CreateSecureToken();
         var user = new User
@@ -426,6 +443,13 @@ public class AuthController : ControllerBase
             !u.IsArchived);
         if (user == null)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "This password reset link is invalid or has expired. Request a new one." });
+
+        var passwordPolicy = await _passwordPolicyService.EvaluateAsync(request.NewPassword, HttpContext.RequestAborted);
+        if (passwordPolicy.Status == PasswordPolicyStatus.Compromised)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Choose a password that is not common or known to have appeared in a data breach." });
+        if (passwordPolicy.Status == PasswordPolicyStatus.Unavailable)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<bool> { Success = false, Message = "Password safety checks are temporarily unavailable. Please try again shortly." });
 
         var now = DateTime.UtcNow;
         var newPasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
@@ -1117,6 +1141,13 @@ public class AuthController : ControllerBase
 
         if (!BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "Current password is incorrect" });
+
+        var passwordPolicy = await _passwordPolicyService.EvaluateAsync(request.NewPassword, HttpContext.RequestAborted);
+        if (passwordPolicy.Status == PasswordPolicyStatus.Compromised)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Choose a password that is not common or known to have appeared in a data breach." });
+        if (passwordPolicy.Status == PasswordPolicyStatus.Unavailable)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new ApiResponse<bool> { Success = false, Message = "Password safety checks are temporarily unavailable. Please try again shortly." });
 
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
         user.SecurityStamp = CreateSecureToken();
