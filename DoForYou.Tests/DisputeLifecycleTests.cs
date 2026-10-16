@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using TaskEntity = DoForYou.API.Models.Task;
+using Task = System.Threading.Tasks.Task;
 
 namespace DoForYou.Tests;
 
