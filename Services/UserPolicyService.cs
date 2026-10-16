@@ -4,17 +4,16 @@ using DoForYou.API.Models;
 namespace DoForYou.API.Services;
 
 /// <summary>
-/// Single backend authority for user profile readiness and role capabilities.
-/// Frontends may use these values for presentation, but authorization must always
-/// be evaluated here/server-side at the point of action.
+/// Backend authority for role capabilities. Profile completion is informational;
+/// it must not be used as a substitute for email, runner identity, 2FA, or payout gates.
 /// </summary>
 public interface IUserPolicyService
 {
-    bool IsProfileComplete(User user, bool hasVerifiedBank = true);
-    int GetProfileCompletion(User user, bool hasVerifiedBank = true);
-    IReadOnlyList<string> GetMissingProfileFields(User user, bool hasVerifiedBank = true);
+    bool IsProfileComplete(User user);
+    int GetProfileCompletion(User user);
+    IReadOnlyList<string> GetMissingProfileFields(User user);
     bool CanCreateTasks(User user);
-    bool CanAcceptTasks(User user, bool hasVerifiedBank = true);
+    bool CanAcceptTasks(User user);
     bool IsValidPhone(string value);
     bool IsPlaceholderAddress(string? value);
     bool IsValidSouthAfricanId(string? value);
@@ -28,17 +27,22 @@ public sealed class UserPolicyService : IUserPolicyService
         "just around", "near me", "around", "n/a", "na", "tbc", "unknown", "somewhere"
     };
 
-    public bool IsProfileComplete(User user, bool hasVerifiedBank = true) =>
-        GetMissingProfileFields(user, hasVerifiedBank).Count == 0;
+    public bool IsProfileComplete(User user) =>
+        GetMissingProfileFields(user).Count == 0;
 
-    public int GetProfileCompletion(User user, bool hasVerifiedBank = true)
+    public int GetProfileCompletion(User user)
     {
-        const int total = 9;
-        var complete = total - GetMissingProfileFields(user, hasVerifiedBank).Count;
+        const int total = 5;
+        var complete = total - GetMissingProfileFields(user).Count;
         return (int)Math.Round(complete * 100.0 / total);
     }
 
-    public IReadOnlyList<string> GetMissingProfileFields(User user, bool hasVerifiedBank = true)
+    /// <summary>
+    /// This list covers only basic account/profile details. Address, ID, date of birth,
+    /// identity verification, authenticator 2FA, and payout readiness are separate
+    /// onboarding/capability states and must not disable creator actions.
+    /// </summary>
+    public IReadOnlyList<string> GetMissingProfileFields(User user)
     {
         var missing = new List<string>();
 
@@ -50,28 +54,29 @@ public sealed class UserPolicyService : IUserPolicyService
             missing.Add("email");
         if (string.IsNullOrWhiteSpace(user.PhoneNumber) || !IsValidPhone(user.PhoneNumber))
             missing.Add("phoneNumber");
-        if (string.IsNullOrWhiteSpace(user.Address) || IsPlaceholderAddress(user.Address))
-            missing.Add("address");
-        var hasValidAdultId = TryGetAdultDateOfBirthFromSouthAfricanId(user.IdNumber, out var derivedDateOfBirth);
-        if (!hasValidAdultId)
-            missing.Add("idNumber");
-        if (!user.DateOfBirth.HasValue ||
-            (hasValidAdultId && user.DateOfBirth.Value.Date != derivedDateOfBirth.Date))
-            missing.Add("dateOfBirth");
         var userTypeLower = NormalizeUserType(user.UserType);
         if (userTypeLower is not ("creator" or "runner" or "both"))
             missing.Add("userType");
-        if (userTypeLower is "runner" or "both" && !hasVerifiedBank)
-            missing.Add("verifiedBankAccount");
 
         return missing;
     }
 
     public bool CanCreateTasks(User user) =>
-        user.EmailVerified && IsProfileComplete(user) && (NormalizeUserType(user.UserType) is "creator" or "both");
+        !user.IsArchived &&
+        user.EmailVerified &&
+        (NormalizeUserType(user.UserType) is "creator" or "both");
 
-    public bool CanAcceptTasks(User user, bool hasVerifiedBank = true) =>
-        user.EmailVerified && IsProfileComplete(user, hasVerifiedBank) && (NormalizeUserType(user.UserType) is "runner" or "both");
+    /// <summary>
+    /// Runner eligibility fails closed until both verified identity/liveness and
+    /// authenticator-based two-factor authentication have been completed. Payout
+    /// account readiness is deliberately evaluated separately at payout time.
+    /// </summary>
+    public bool CanAcceptTasks(User user) =>
+        !user.IsArchived &&
+        user.EmailVerified &&
+        (NormalizeUserType(user.UserType) is "runner" or "both") &&
+        string.Equals(user.IdentityVerificationStatus, "passed", StringComparison.OrdinalIgnoreCase) &&
+        user.AuthenticatorTwoFactorEnabled;
 
     private static string NormalizeUserType(string? userType) =>
         userType?.Trim().ToLowerInvariant() ?? string.Empty;
