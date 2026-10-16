@@ -19,11 +19,10 @@ public interface IPasswordPolicyService
 }
 
 /// <summary>
-/// Rejects a small local list of common passwords, then checks the Pwned Passwords
-/// range API using k-anonymity. The password and its full hash are never transmitted.
-/// Range responses are compared in memory only and are not cached or persisted.
+/// Rules for rejecting passwords known to be commonly used. The same check is
+/// applied even when tests or a local development instance do not configure HIBP.
 /// </summary>
-public sealed class PwnedPasswordPolicyService(HttpClient httpClient) : IPasswordPolicyService
+public static class CommonPasswordRules
 {
     private static readonly HashSet<string> CommonPasswords = new(StringComparer.Ordinal)
     {
@@ -33,19 +32,38 @@ public sealed class PwnedPasswordPolicyService(HttpClient httpClient) : IPasswor
         "letmein", "welcome", "welcome1", "changeme", "iloveyou",
         "monkey", "dragon", "sunshine", "football", "princess",
         "trustno1", "master", "login", "solo", "starwars",
-        "000000", "111111", "654321", "Password1", "Password123"
+        "000000", "111111", "654321"
     };
 
+    public static bool IsCommon(string password) =>
+        CommonPasswords.Contains(password) ||
+        CommonPasswords.Contains(password.ToLowerInvariant());
+}
+
+/// <summary>
+/// Used only when the application is constructed without the registered HIBP client
+/// (primarily in isolated controller tests). Production DI uses PwnedPasswordPolicyService.
+/// </summary>
+public sealed class CommonPasswordOnlyPolicyService : IPasswordPolicyService
+{
+    public Task<PasswordPolicyResult> EvaluateAsync(string password, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new PasswordPolicyResult(
+            string.IsNullOrEmpty(password) || CommonPasswordRules.IsCommon(password)
+                ? PasswordPolicyStatus.Compromised
+                : PasswordPolicyStatus.Accepted));
+}
+
+/// <summary>
+/// Rejects common passwords, then checks the Pwned Passwords range API using
+/// k-anonymity. The password and its full hash are never transmitted. Range
+/// responses are compared in memory only and are not cached or persisted.
+/// </summary>
+public sealed class PwnedPasswordPolicyService(HttpClient httpClient) : IPasswordPolicyService
+{
     public async Task<PasswordPolicyResult> EvaluateAsync(string password, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(password))
+        if (string.IsNullOrEmpty(password) || CommonPasswordRules.IsCommon(password))
             return new PasswordPolicyResult(PasswordPolicyStatus.Compromised);
-
-        if (CommonPasswords.Contains(password) ||
-            CommonPasswords.Contains(password.ToLowerInvariant()))
-        {
-            return new PasswordPolicyResult(PasswordPolicyStatus.Compromised);
-        }
 
         byte[]? passwordBytes = null;
         byte[]? hashBytes = null;
