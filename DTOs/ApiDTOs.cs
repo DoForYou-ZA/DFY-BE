@@ -204,32 +204,50 @@ public class LoginRequest
 
 public class RegisterRequest
 {
-    [Required]
+    [Required, StringLength(50, MinimumLength = 1)]
     public string FirstName { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(50, MinimumLength = 1)]
     public string LastName { get; set; } = string.Empty;
-    
-    [Required, EmailAddress]
+
+    [Required, EmailAddress, StringLength(254)]
     public string Email { get; set; } = string.Empty;
-    
-    [Required]
+
+    // Passwords are deliberately not trimmed or normalized.
+    [Required, StringLength(128, MinimumLength = 12)]
     public string Password { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(20)]
     public string PhoneNumber { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(10)]
     public string UserType { get; set; } = string.Empty;
-    
-    public string? IdNumber { get; set; }
-    
-    [Required]
+
+    [Required, RegularExpression("^[0-9]{13}$")]
+    public string IdNumber { get; set; } = string.Empty;
+
+    [Required, StringLength(200, MinimumLength = 2)]
     public string Address { get; set; } = string.Empty;
-    
+
+    // Kept for client compatibility only; the server derives DOB from ID.
     public DateTime? DateOfBirth { get; set; }
-    
+
+    [StringLength(80)]
     public string? Username { get; set; }
+
+    [Required]
+    public bool TermsAccepted { get; set; }
+
+    [Required]
+    public bool PrivacyAccepted { get; set; }
+
+    [Required, StringLength(40)]
+    public string TermsVersion { get; set; } = string.Empty;
+
+    [Required, StringLength(40)]
+    public string PrivacyVersion { get; set; } = string.Empty;
+
+    public bool MarketingConsent { get; set; }
 }
 
 public class AuthResponse
