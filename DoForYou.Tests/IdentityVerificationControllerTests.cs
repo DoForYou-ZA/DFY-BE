@@ -205,6 +205,75 @@ public class IdentityVerificationControllerTests
     }
 
     [Fact]
+    public async Task Refresh_mints_a_new_token_only_for_the_authenticated_pending_runner()
+    {
+        await using var context = CreateContext();
+        var user = NewRunner(77);
+        user.IdentityVerificationStatus = "pending";
+        user.IdentityVerificationProvider = "Sumsub";
+        user.IdentityVerificationExternalUserId = $"dfy-user-{user.Id}";
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var provider = new FakeIdentityService { AccessToken = "refreshed-provider-token" };
+        var controller = CreateController(context, provider);
+        AddAuthenticatedUser(controller, user.Id);
+
+        var action = await controller.RefreshProviderSession(CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(action.Result);
+        var response = Assert.IsType<ApiResponse<object>>(ok.Value);
+        using var payload = JsonDocument.Parse(JsonSerializer.Serialize(response.Data));
+        Assert.Equal("refreshed-provider-token", payload.RootElement.GetProperty("accessToken").GetString());
+        Assert.Equal(600, payload.RootElement.GetProperty("expiresInSeconds").GetInt32());
+        Assert.Equal(1, provider.TokenRequests);
+        Assert.Equal("pending", user.IdentityVerificationStatus);
+        Assert.Null(user.IdNumber);
+    }
+
+    [Fact]
+    public async Task Refresh_denies_non_pending_or_mismatched_provider_sessions()
+    {
+        await using var context = CreateContext();
+        var user = NewRunner(78);
+        user.IdentityVerificationStatus = "passed";
+        user.IdentityVerificationProvider = "Sumsub";
+        user.IdentityVerificationExternalUserId = $"dfy-user-{user.Id}";
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var provider = new FakeIdentityService();
+        var controller = CreateController(context, provider);
+        AddAuthenticatedUser(controller, user.Id);
+
+        var action = await controller.RefreshProviderSession(CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status409Conflict, Assert.IsType<ConflictObjectResult>(action.Result).StatusCode);
+        Assert.Equal(0, provider.TokenRequests);
+        Assert.Equal("passed", user.IdentityVerificationStatus);
+    }
+
+    [Fact]
+    public async Task Refresh_requires_authentication_and_does_not_accept_a_caller_supplied_user_id()
+    {
+        await using var context = CreateContext();
+        var user = NewRunner(79);
+        user.IdentityVerificationStatus = "pending";
+        user.IdentityVerificationProvider = "Sumsub";
+        user.IdentityVerificationExternalUserId = $"dfy-user-{user.Id}";
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var provider = new FakeIdentityService();
+        var controller = CreateController(context, provider);
+
+        var action = await controller.RefreshProviderSession(CancellationToken.None);
+
+        Assert.IsType<UnauthorizedResult>(action.Result);
+        Assert.Equal(0, provider.TokenRequests);
+    }
+
+    [Fact]
     public async Task Invalid_provider_webhook_signature_is_rejected_without_state_change()
     {
         await using var context = CreateContext();
