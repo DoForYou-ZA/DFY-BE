@@ -920,6 +920,72 @@ public class AuthController : ControllerBase
     }
 
     [EnableRateLimiting("auth")]
+    [HttpPost("reauthenticate")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<object>>> Reauthenticate([FromBody] ReauthenticateRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var user = await _context.Users.FirstOrDefaultAsync(
+            u => u.Id == userId.Value && !u.IsArchived,
+            HttpContext.RequestAborted);
+        if (user == null) return Unauthorized();
+
+        var primaryFactorValid = false;
+        if (!string.IsNullOrWhiteSpace(request.GoogleIdToken))
+        {
+            var payload = await ValidateGoogleIdTokenAsync(request.GoogleIdToken);
+            primaryFactorValid = payload?.EmailVerified == true &&
+                !string.IsNullOrWhiteSpace(user.GoogleSubject) &&
+                string.Equals(payload.Subject, user.GoogleSubject, StringComparison.Ordinal) &&
+                string.Equals(payload.Email?.Trim(), user.Email, StringComparison.OrdinalIgnoreCase);
+        }
+        else if (!string.IsNullOrWhiteSpace(request.CurrentPassword))
+        {
+            primaryFactorValid = BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash);
+        }
+
+        if (!primaryFactorValid)
+            return Unauthorized(new ApiResponse<object>
+            {
+                Success = false,
+                Message = "Reauthentication failed. Confirm your current password or sign in again with the linked Google account."
+            });
+
+        if (user.AuthenticatorTwoFactorEnabled)
+        {
+            if (!await ValidateSecondFactorAsync(user, request.SecondFactorCode))
+            {
+                return Unauthorized(new ApiResponse<object>
+                {
+                    Success = false,
+                    Message = "Enter a valid authenticator or one-time recovery code to continue."
+                });
+            }
+            user.LastTwoFactorVerifiedAt = DateTime.UtcNow;
+        }
+
+        var token = CreateSecureToken();
+        var now = DateTime.UtcNow;
+        user.SensitiveActionTokenHash = HashToken(token);
+        user.SensitiveActionTokenExpiry = now.AddMinutes(5);
+        await _context.SaveChangesAsync(HttpContext.RequestAborted);
+
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new
+            {
+                stepUpToken = token,
+                expiresAt = user.SensitiveActionTokenExpiry,
+                expiresInSeconds = 300
+            },
+            Message = "Reauthentication complete. Use this single-operation token within five minutes to update payout settings."
+        });
+    }
+
+    [EnableRateLimiting("auth")]
     [HttpPost("login")]
     public async Task<ActionResult<AuthResponse>> Login([FromBody] LoginRequest request)
     {
