@@ -143,6 +143,16 @@ public sealed class PayoutProcessorService(
             payout.Task.TaskStatus = "PayoutPending";
             payout.UpdatedAt = DateTime.UtcNow;
             payout.Task.UpdatedAt = DateTime.UtcNow;
+            context.AuditLogs.Add(new Models.AuditLog
+            {
+                UserId = payout.RunnerId,
+                Action = "PayoutHeldForEligibility",
+                EntityType = "Payout",
+                EntityId = payout.Id,
+                NewValues = "status=AwaitingEligibility; reason=RunnerEligibilityMissing",
+                IpAddress = "background-service",
+                UserAgent = "PayoutProcessorService"
+            });
             await context.SaveChangesAsync(cancellationToken);
             return;
         }
@@ -240,13 +250,27 @@ public sealed class PayoutProcessorService(
             return;
 
         context.ChangeTracker.Clear();
-        var task = await context.Tasks.FirstOrDefaultAsync(t => t.Id == payout.TaskId, cancellationToken);
-        if (task == null)
-            return;
+        if (!string.Equals(payout.Status, "AwaitingEligibility", StringComparison.Ordinal))
+        {
+            context.AuditLogs.Add(new Models.AuditLog
+            {
+                UserId = payout.RunnerId,
+                Action = "PayoutHeldForEligibility",
+                EntityType = "Payout",
+                EntityId = payout.Id,
+                NewValues = "status=AwaitingEligibility; reason=RunnerEligibilityMissing",
+                IpAddress = "background-service",
+                UserAgent = "PayoutProcessorService"
+            });
+        }
 
-        task.PayoutStatus = "AwaitingEligibility";
-        task.TaskStatus = "PayoutPending";
-        task.UpdatedAt = now;
+        var task = await context.Tasks.FirstOrDefaultAsync(t => t.Id == payout.TaskId, cancellationToken);
+        if (task != null)
+        {
+            task.PayoutStatus = "AwaitingEligibility";
+            task.TaskStatus = "PayoutPending";
+            task.UpdatedAt = now;
+        }
         await context.SaveChangesAsync(cancellationToken);
     }
 
