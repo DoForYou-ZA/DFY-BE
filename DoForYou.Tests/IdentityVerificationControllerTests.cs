@@ -151,6 +151,7 @@ public class IdentityVerificationControllerTests
         {
             applicantId = "test-applicant-reference",
             externalUserId = $"dfy-user-{user.Id}",
+            levelName = "sandbox-runner-level",
             type = "applicantReviewed",
             reviewStatus = "completed",
             reviewResult = new { reviewAnswer = "GREEN" },
@@ -170,6 +171,36 @@ public class IdentityVerificationControllerTests
         Assert.IsType<OkObjectResult>(replay);
         Assert.Equal("passed", user.IdentityVerificationStatus);
         Assert.Single(context.IdentityVerificationEvents);
+    }
+
+    [Fact]
+    public async Task Signed_review_from_a_different_level_cannot_grant_runner_eligibility()
+    {
+        await using var context = CreateContext();
+        var user = NewRunner(76);
+        user.IdentityVerificationStatus = "pending";
+        user.IdentityVerificationProvider = "Sumsub";
+        user.IdentityVerificationExternalUserId = $"dfy-user-{user.Id}";
+        user.IdentityVerificationStartedAt = DateTime.UtcNow.AddMinutes(-2);
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            applicantId = "foreign-level-applicant",
+            externalUserId = $"dfy-user-{user.Id}",
+            levelName = "a-different-level",
+            type = "applicantReviewed",
+            reviewStatus = "completed",
+            reviewResult = new { reviewAnswer = "GREEN" },
+            createdAtMs = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff", CultureInfo.InvariantCulture)
+        });
+
+        var action = await SendWebhook(CreateController(context, new FakeIdentityService()), payload);
+
+        Assert.IsType<AcceptedResult>(action);
+        Assert.Equal("pending", user.IdentityVerificationStatus);
+        Assert.Empty(context.IdentityVerificationEvents);
     }
 
     [Fact]
@@ -238,6 +269,7 @@ public class IdentityVerificationControllerTests
     {
         public bool IsConfigured { get; set; } = true;
         public string ConsentVersion => IdentityVerificationControllerTests.ConsentVersion;
+        public string ExpectedLevelName => "sandbox-runner-level";
         public string AccessToken { get; set; } = "provider-test-token";
         public bool AcceptWebhook { get; set; } = true;
         public int TokenRequests { get; private set; }
