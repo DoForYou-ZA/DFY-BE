@@ -875,8 +875,7 @@ namespace DoForYou.API.Migrations
                         .HasColumnType("text");
 
                     b.Property<bool>("AuthenticatorTwoFactorEnabled")
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Bio")
                         .HasColumnType("text");
@@ -903,6 +902,12 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("EmailVerificationSentAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("EmailVerificationSendWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("EmailVerificationSendCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("EmailVerificationToken")
                         .HasColumnType("text");
 
@@ -918,8 +923,7 @@ namespace DoForYou.API.Migrations
 
                     b.Property<string>("IdentityVerificationStatus")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasDefaultValue("not_started");
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsAvailable")
                         .HasColumnType("boolean");
