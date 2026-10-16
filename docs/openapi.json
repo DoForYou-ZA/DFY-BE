@@ -6354,10 +6354,8 @@
       },
       "RegisterRequest": {
         "required": [
-          "address",
           "email",
           "firstName",
-          "idNumber",
           "lastName",
           "password",
           "phoneNumber",
@@ -6399,21 +6397,6 @@
             "maxLength": 10,
             "minLength": 0,
             "type": "string"
-          },
-          "idNumber": {
-            "minLength": 1,
-            "pattern": "^[0-9]{13}$",
-            "type": "string"
-          },
-          "address": {
-            "maxLength": 200,
-            "minLength": 2,
-            "type": "string"
-          },
-          "dateOfBirth": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
           },
           "username": {
             "maxLength": 80,
@@ -6951,6 +6934,19 @@
             "nullable": true
           },
           "isVerified": {
+            "type": "boolean"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "phoneVerified": {
+            "type": "boolean"
+          },
+          "identityVerificationStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "authenticatorTwoFactorEnabled": {
             "type": "boolean"
           }
         },

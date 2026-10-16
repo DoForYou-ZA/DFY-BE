@@ -5492,10 +5492,6 @@ export interface components {
             password: string;
             phoneNumber: string;
             userType: string;
-            idNumber: string;
-            address: string;
-            /** Format: date-time */
-            dateOfBirth?: string | null;
             username?: string | null;
             termsAccepted: boolean;
             privacyAccepted: boolean;
@@ -5659,6 +5655,10 @@ export interface components {
             /** Format: date-time */
             lastLoginAt?: string | null;
             isVerified?: boolean;
+            emailVerified?: boolean;
+            phoneVerified?: boolean;
+            identityVerificationStatus?: string | null;
+            authenticatorTwoFactorEnabled?: boolean;
         };
         UserPreferencesRequest: {
             canCreateTasks?: boolean;
