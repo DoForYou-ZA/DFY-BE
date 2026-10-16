@@ -271,13 +271,15 @@ public class AuthRecoveryTests
             ["Jwt:Audience"] = "DoForYou",
             ["Frontend:BaseUrl"] = "https://dfy-fe-staging.onrender.com"
         };
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var controller = new AuthController(
             context,
-            new ConfigurationBuilder().AddInMemoryCollection(settings).Build(),
+            configuration,
             NullLogger<AuthController>.Instance,
             new NoOpNotificationService(),
             new UserPolicyService(),
-            emailSender);
+            emailSender,
+            new AuthenticatorService(configuration));
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         return controller;
     }
