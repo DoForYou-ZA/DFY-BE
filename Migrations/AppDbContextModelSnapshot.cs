@@ -600,6 +600,28 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("GoogleSubject")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AuthenticatorSecretEncrypted")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PendingAuthenticatorSecretEncrypted")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AuthenticatorRecoveryCodeHashes")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AuthenticatorEnrolledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastTwoFactorVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
@@ -1020,6 +1042,14 @@ namespace DoForYou.API.Migrations
                         .HasColumnType("numeric");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("GoogleSubject")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Users_GoogleSubject");
+
+                    b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Users_NormalizedEmail");
 
                     b.ToTable("Users");
                 });
