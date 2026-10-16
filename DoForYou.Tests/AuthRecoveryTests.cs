@@ -15,6 +15,53 @@ namespace DoForYou.Tests;
 
 public class AuthRecoveryTests
 {
+
+    [Fact]
+    public async System.Threading.Tasks.Task Registration_stores_hashed_verification_token_and_does_not_issue_session()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(context, emailSender);
+
+        var result = await controller.Register(new RegisterRequest
+        {
+            FirstName = "Test",
+            LastName = "Creator",
+            Email = "new.creator@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            IdNumber = "8001015009087",
+            DateOfBirth = new DateTime(1980, 1, 1),
+            Address = "15 Church Street, Pretoria",
+            Password = "A-strong-unique-passphrase-2026",
+            TermsAccepted = true,
+            PrivacyAccepted = true,
+            TermsVersion = "terms-v1",
+            PrivacyVersion = "privacy-v1",
+            MarketingConsent = false
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<AuthResponse>(ok.Value);
+        var user = Assert.Single(context.Users);
+
+        Assert.True(response.Success);
+        Assert.Null(response.Token);
+        Assert.False(user.EmailVerified);
+        Assert.False(user.PhoneVerified);
+        Assert.NotNull(user.EmailVerificationToken);
+        Assert.NotNull(user.EmailVerificationExpiry);
+        Assert.NotNull(user.EmailVerificationSentAt);
+        var emailBody = Assert.Single(emailSender.Messages).Body;
+        var tokenLine = emailBody.Split('\n').Single(line => line.Contains("?token=", StringComparison.Ordinal));
+        var rawToken = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
+        Assert.NotEqual(rawToken, user.EmailVerificationToken);
+        Assert.Contains("verify-email", emailBody);
+    }
+
     [Fact]
     public async System.Threading.Tasks.Task Password_reset_consumes_token_and_revokes_existing_sessions()
     {
