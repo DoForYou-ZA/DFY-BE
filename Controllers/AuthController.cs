@@ -874,7 +874,8 @@ public class AuthController : ControllerBase
                 EmailVerified = user.EmailVerified,
                 PhoneVerified = user.PhoneVerified,
                 IdentityVerificationStatus = user.IdentityVerificationStatus,
-                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
+                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled,
+                HasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject)
             },
             Message = "Session refreshed"
         });
