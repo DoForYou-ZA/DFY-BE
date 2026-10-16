@@ -113,4 +113,14 @@ public class UserPolicyServiceTests
         throw new InvalidOperationException("Unable to construct a valid checksum test ID.");
     }
 
+    [Fact]
+    public void Unverified_email_cannot_enable_task_capabilities()
+    {
+        var user = CompleteUser("both");
+        user.EmailVerified = false;
+
+        Assert.False(_policy.CanCreateTasks(user));
+        Assert.False(_policy.CanAcceptTasks(user));
+    }
+
 }
