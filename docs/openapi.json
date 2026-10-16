@@ -2056,6 +2056,54 @@
         }
       }
     },
+    "/api/v1/auth/reauthenticate": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthenticateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthenticateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReauthenticateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectApiResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "tags": [
@@ -6850,6 +6898,30 @@
           "category": {
             "minLength": 1,
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReauthenticateRequest": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "maxLength": 72,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
+          },
+          "googleIdToken": {
+            "maxLength": 10000,
+            "minLength": 20,
+            "type": "string",
+            "nullable": true
+          },
+          "secondFactorCode": {
+            "maxLength": 20,
+            "minLength": 6,
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

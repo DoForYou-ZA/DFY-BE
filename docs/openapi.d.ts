@@ -1824,6 +1824,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/reauthenticate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["ReauthenticateRequest"];
+                    "text/json": components["schemas"]["ReauthenticateRequest"];
+                    "application/*+json": components["schemas"]["ReauthenticateRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -5878,6 +5921,11 @@ export interface components {
             taskId: string;
             issue: string;
             category: string;
+        };
+        ReauthenticateRequest: {
+            currentPassword?: string | null;
+            googleIdToken?: string | null;
+            secondFactorCode?: string | null;
         };
         RegisterRequest: {
             firstName: string;
