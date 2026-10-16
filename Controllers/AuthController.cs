@@ -526,15 +526,22 @@ public class AuthController : ControllerBase
                     Message = "Choose an account type and complete the signup form to create your DoForYou account."
                 });
 
-            if (!string.IsNullOrWhiteSpace(user.GoogleSubject) &&
-                !string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
-            {
+            // A matching email is not permission to silently merge/link identities.
+            // The account holder must sign in with the existing method, explicitly
+            // link Google from account settings, and complete step-up reauthentication.
+            if (string.IsNullOrWhiteSpace(user.GoogleSubject))
                 return Conflict(new AuthResponse
                 {
                     Success = false,
-                    Message = "This Google account cannot be linked to the selected DoForYou account."
+                    RequiresAccountLink = true,
+                    Message = "A DoForYou account already uses this email. Sign in with your existing method, then link Google from account security settings."
                 });
-            }
+
+            return Conflict(new AuthResponse
+            {
+                Success = false,
+                Message = "This Google identity is not linked to the selected DoForYou account."
+            });
         }
         if (user.IsArchived)
             return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be completed for this account." });
@@ -574,6 +581,146 @@ public class AuthController : ControllerBase
         await _context.SaveChangesAsync();
         _logger.LogInformation("Successful Google login for user id {UserId}", user.Id);
         return Ok(CreateSessionResponse(user, "Google sign-in successful."));
+    }
+
+    /// <summary>
+    /// Explicitly links Google to an already authenticated DoForYou account.
+    /// A single-use step-up token from /reauthenticate is required so a stolen
+    /// access token alone cannot add a new sign-in method.
+    /// </summary>
+    [EnableRateLimiting("auth")]
+    [HttpPost("google/link")]
+    [Authorize]
+    public async Task<ActionResult<ApiResponse<object>>> LinkGoogleAccount([FromBody] GoogleLinkRequest request)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var googlePayload = await ValidateGoogleIdTokenAsync(request.IdToken);
+        if (googlePayload == null || googlePayload.EmailVerified != true ||
+            string.IsNullOrWhiteSpace(googlePayload.Subject) ||
+            string.IsNullOrWhiteSpace(googlePayload.Email))
+            return Unauthorized(new ApiResponse<object> { Success = false, Message = "Google sign-in could not be verified. Please try again." });
+
+        var user = await _context.Users.FirstOrDefaultAsync(
+            u => u.Id == userId.Value && !u.IsArchived,
+            HttpContext.RequestAborted);
+        if (user == null) return Unauthorized();
+
+        var accountEmail = string.IsNullOrWhiteSpace(user.NormalizedEmail)
+            ? user.Email.Trim().ToLowerInvariant()
+            : user.NormalizedEmail;
+        var googleEmail = googlePayload.Email.Trim().ToLowerInvariant();
+        if (!user.EmailVerified || !string.Equals(accountEmail, googleEmail, StringComparison.Ordinal))
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Error = "GOOGLE_EMAIL_MISMATCH",
+                Message = "Link only a Google account whose verified email matches this DoForYou account."
+            });
+
+        if (string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
+            return Ok(new ApiResponse<object>
+            {
+                Success = true,
+                Data = new { linked = true, alreadyLinked = true },
+                Message = "This Google account is already linked."
+            });
+
+        if (!string.IsNullOrWhiteSpace(user.GoogleSubject))
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Error = "GOOGLE_ACCOUNT_ALREADY_LINKED",
+                Message = "A different Google account is already linked. Contact support to change the linked sign-in method."
+            });
+
+        if (await _context.Users.AnyAsync(
+                u => u.Id != user.Id && u.GoogleSubject == googlePayload.Subject,
+                HttpContext.RequestAborted))
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Error = "GOOGLE_IDENTITY_IN_USE",
+                Message = "This Google account is already linked to another DoForYou account."
+            });
+
+        var presentedStepUp = Request.Headers["X-DFY-Step-Up-Token"].ToString();
+        if (string.IsNullOrWhiteSpace(presentedStepUp))
+            return StatusCode(428, new ApiResponse<object>
+            {
+                Success = false,
+                Error = "SENSITIVE_ACTION_REAUTH_REQUIRED",
+                Message = "Reauthenticate with your current sign-in method and second factor, then retry the link operation."
+            });
+
+        var tokenHash = HashToken(presentedStepUp);
+        var now = DateTime.UtcNow;
+        var newSecurityStamp = CreateSecureToken();
+        try
+        {
+            if (_context.Database.IsRelational())
+            {
+                var affected = await _context.Users
+                    .Where(u => u.Id == user.Id &&
+                                !u.IsArchived &&
+                                u.EmailVerified &&
+                                u.GoogleSubject == null &&
+                                u.NormalizedEmail == accountEmail &&
+                                u.SensitiveActionTokenHash == tokenHash &&
+                                u.SensitiveActionTokenExpiry != null &&
+                                u.SensitiveActionTokenExpiry > now)
+                    .ExecuteUpdateAsync(setters => setters
+                        .SetProperty(u => u.GoogleSubject, googlePayload.Subject)
+                        .SetProperty(u => u.SensitiveActionTokenHash, (string?)null)
+                        .SetProperty(u => u.SensitiveActionTokenExpiry, (DateTime?)null)
+                        .SetProperty(u => u.SecurityStamp, newSecurityStamp),
+                        HttpContext.RequestAborted);
+                if (affected != 1)
+                    return StatusCode(428, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Error = "SENSITIVE_ACTION_REAUTH_REQUIRED",
+                        Message = "Your reauthentication expired or was already used. Reauthenticate, then retry the link operation."
+                    });
+            }
+            else
+            {
+                if (user.GoogleSubject != null ||
+                    !string.Equals(user.SensitiveActionTokenHash, tokenHash, StringComparison.Ordinal) ||
+                    !user.SensitiveActionTokenExpiry.HasValue ||
+                    user.SensitiveActionTokenExpiry.Value <= now)
+                    return StatusCode(428, new ApiResponse<object>
+                    {
+                        Success = false,
+                        Error = "SENSITIVE_ACTION_REAUTH_REQUIRED",
+                        Message = "Your reauthentication expired or was already used. Reauthenticate, then retry the link operation."
+                    });
+
+                user.GoogleSubject = googlePayload.Subject;
+                user.SensitiveActionTokenHash = null;
+                user.SensitiveActionTokenExpiry = null;
+                user.SecurityStamp = newSecurityStamp;
+                await _context.SaveChangesAsync(HttpContext.RequestAborted);
+            }
+        }
+        catch (DbUpdateException)
+        {
+            return Conflict(new ApiResponse<object>
+            {
+                Success = false,
+                Error = "GOOGLE_IDENTITY_IN_USE",
+                Message = "This Google account is already linked to another DoForYou account."
+            });
+        }
+
+        _logger.LogInformation("Google sign-in method linked for user id {UserId}", user.Id);
+        return Ok(new ApiResponse<object>
+        {
+            Success = true,
+            Data = new { linked = true, alreadyLinked = false, requiresSignInAgain = true },
+            Message = "Google account linked. Your sessions have been revoked; sign in again to continue."
+        });
     }
 
     [EnableRateLimiting("auth")]
