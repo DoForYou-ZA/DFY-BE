@@ -411,14 +411,14 @@ public class AuthController : ControllerBase
         return value.TrimEnd('/');
     }
 
-    private Task SendVerificationEmailAsync(string email, string token, CancellationToken cancellationToken)
+    private System.Threading.Tasks.Task SendVerificationEmailAsync(string email, string token, CancellationToken cancellationToken)
     {
         var link = $"{GetPublicFrontendUrl()}/verify-email?token={Uri.EscapeDataString(token)}";
         var body = $"Welcome to DoForYou.\n\nVerify your email address using this link (valid for 24 hours):\n{link}\n\nIf you did not create this account, you can ignore this email.";
         return _emailSender.SendAsync(email, "Verify your DoForYou email", body, cancellationToken);
     }
 
-    private Task SendPasswordResetEmailAsync(string email, string token, CancellationToken cancellationToken)
+    private System.Threading.Tasks.Task SendPasswordResetEmailAsync(string email, string token, CancellationToken cancellationToken)
     {
         var link = $"{GetPublicFrontendUrl()}/reset-password?token={Uri.EscapeDataString(token)}";
         var body = $"A password reset was requested for your DoForYou account.\n\nUse this link within 30 minutes to choose a new password:\n{link}\n\nIf you did not request this, you can ignore this email. Your password will not change.";
