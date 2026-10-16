@@ -250,6 +250,33 @@ public class RegisterRequest
     public bool MarketingConsent { get; set; }
 }
 
+public class VerifyEmailRequest
+{
+    [Required, StringLength(200)]
+    public string Token { get; set; } = string.Empty;
+}
+
+public class ResendVerificationRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ForgotPasswordRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ResetPasswordRequest
+{
+    [Required, StringLength(200)]
+    public string Token { get; set; } = string.Empty;
+
+    [Required, StringLength(72, MinimumLength = 12)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
 public class AuthResponse
 {
     public bool Success { get; set; }
