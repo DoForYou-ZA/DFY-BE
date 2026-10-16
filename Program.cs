@@ -202,6 +202,10 @@ builder.Services.AddScoped<IUserPolicyService, UserPolicyService>();
 builder.Services.AddSingleton<IAuthenticatorService, AuthenticatorService>();
 builder.Services.AddHttpClient<IIdentityVerificationService, SumsubIdentityVerificationService>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddHttpClient<IPasswordPolicyService, PwnedPasswordPolicyService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(4);
+});
 builder.Services.AddHostedService<EscrowReleaseService>();
 
 // SignalR
