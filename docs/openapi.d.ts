@@ -1418,6 +1418,258 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/auth/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["GoogleAuthRequest"];
+                    "text/json": components["schemas"]["GoogleAuthRequest"];
+                    "application/*+json": components["schemas"]["GoogleAuthRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthResponse"];
+                        "application/json": components["schemas"]["AuthResponse"];
+                        "text/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/google/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["GoogleRegisterRequest"];
+                    "text/json": components["schemas"]["GoogleRegisterRequest"];
+                    "application/*+json": components["schemas"]["GoogleRegisterRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["AuthResponse"];
+                        "application/json": components["schemas"]["AuthResponse"];
+                        "text/json": components["schemas"]["AuthResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TwoFactorSetupRequest"];
+                    "text/json": components["schemas"]["TwoFactorSetupRequest"];
+                    "application/*+json": components["schemas"]["TwoFactorSetupRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["TwoFactorCodeRequest"];
+                    "text/json": components["schemas"]["TwoFactorCodeRequest"];
+                    "application/*+json": components["schemas"]["TwoFactorCodeRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["ObjectApiResponse"];
+                        "application/json": components["schemas"]["ObjectApiResponse"];
+                        "text/json": components["schemas"]["ObjectApiResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/two-factor/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": components["schemas"]["DisableTwoFactorRequest"];
+                    "text/json": components["schemas"]["DisableTwoFactorRequest"];
+                    "application/*+json": components["schemas"]["DisableTwoFactorRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/plain": components["schemas"]["BooleanApiResponse"];
+                        "application/json": components["schemas"]["BooleanApiResponse"];
+                        "text/json": components["schemas"]["BooleanApiResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/refresh": {
         parameters: {
             query?: never;
@@ -5321,6 +5573,8 @@ export interface components {
         };
         AuthResponse: {
             success?: boolean;
+            requiresTwoFactor?: boolean;
+            requiresAccountSetup?: boolean;
             token?: string | null;
             user?: components["schemas"]["UserDto"];
             message?: string | null;
@@ -5411,9 +5665,29 @@ export interface components {
             /** Format: double */
             longitude?: number | null;
         };
+        DisableTwoFactorRequest: {
+            currentPassword?: string | null;
+            code: string;
+        };
         ForgotPasswordRequest: {
             /** Format: email */
             email: string;
+        };
+        GoogleAuthRequest: {
+            idToken: string;
+            secondFactorCode?: string | null;
+        };
+        GoogleRegisterRequest: {
+            idToken: string;
+            firstName: string;
+            lastName: string;
+            phoneNumber: string;
+            userType: string;
+            termsAccepted: boolean;
+            privacyAccepted: boolean;
+            termsVersion: string;
+            privacyVersion: string;
+            marketingConsent?: boolean;
         };
         InitiatePaymentRequest: {
             taskId: string;
@@ -5429,6 +5703,7 @@ export interface components {
             /** Format: email */
             email: string;
             password: string;
+            secondFactorCode?: string | null;
         };
         MarkTaskReadRequest: {
             /** Format: int32 */
@@ -5592,6 +5867,12 @@ export interface components {
             /** Format: int32 */
             sortOrder?: number | null;
         };
+        TwoFactorCodeRequest: {
+            code: string;
+        };
+        TwoFactorSetupRequest: {
+            currentPassword?: string | null;
+        };
         UpdateProfileRequest: {
             firstName?: string | null;
             lastName?: string | null;
@@ -5659,6 +5940,7 @@ export interface components {
             phoneVerified?: boolean;
             identityVerificationStatus?: string | null;
             authenticatorTwoFactorEnabled?: boolean;
+            hasGoogleLogin?: boolean;
         };
         UserPreferencesRequest: {
             canCreateTasks?: boolean;
