@@ -13,6 +13,8 @@ using DoForYou.API.DTOs;
 using DoForYou.API.Models;
 using DoForYou.API.Services;
 using BCrypt.Net;
+using Google.Apis.Auth;
+using Microsoft.EntityFrameworkCore;
 
 namespace DoForYou.API.Controllers;
 
@@ -27,10 +29,11 @@ public class AuthController : ControllerBase
     private readonly INotificationService _notificationService;
     private readonly IUserPolicyService _userPolicyService;
     private readonly IEmailSender _emailSender;
+    private readonly IAuthenticatorService _authenticatorService;
     private const string CurrentTermsVersion = "terms-v1";
     private const string CurrentPrivacyVersion = "privacy-v1";
 
-    public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService, IEmailSender emailSender)
+    public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService, IEmailSender emailSender, IAuthenticatorService authenticatorService)
     {
         _context = context;
         _configuration = configuration;
@@ -38,6 +41,7 @@ public class AuthController : ControllerBase
         _notificationService = notificationService;
         _userPolicyService = userPolicyService;
         _emailSender = emailSender;
+        _authenticatorService = authenticatorService;
     }
 
     [EnableRateLimiting("auth")]
@@ -63,7 +67,7 @@ public class AuthController : ControllerBase
             return BadRequest(new AuthResponse { Success = false, Message = "Review and accept the current terms and privacy notice to create an account." });
         if (!_userPolicyService.IsValidPhone(request.PhoneNumber))
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African phone number." });
-        if (await _context.Users.AnyAsync(u => u.Email.ToLower() == email))
+        if (await _context.Users.AnyAsync(u => (u.NormalizedEmail == email || (u.NormalizedEmail == null && u.Email.ToLower() == email))))
             return Conflict(new AuthResponse { Success = false, Message = "We couldn't create an account with these details. Try signing in or resetting your password." });
         var normalizedPhone = NormalizeSouthAfricanPhone(request.PhoneNumber);
         if (normalizedPhone == null)
@@ -75,6 +79,7 @@ public class AuthController : ControllerBase
             FirstName = firstName,
             LastName = lastName,
             Email = email,
+            NormalizedEmail = email,
             PhoneNumber = normalizedPhone,
             UserType = userType,
             // Identity and address are collected later through the appropriate onboarding flow.
@@ -216,7 +221,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> ResendVerification([FromBody] ResendVerificationRequest request)
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
+        var user = await _context.Users.FirstOrDefaultAsync(u => (u.NormalizedEmail == normalizedEmail || (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail)) && !u.IsArchived);
         var now = DateTime.UtcNow;
 
         if (user != null && !user.EmailVerified)
@@ -301,7 +306,7 @@ public class AuthController : ControllerBase
     public async Task<ActionResult<ApiResponse<bool>>> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail && !u.IsArchived);
+        var user = await _context.Users.FirstOrDefaultAsync(u => (u.NormalizedEmail == normalizedEmail || (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail)) && !u.IsArchived);
         var now = DateTime.UtcNow;
         if (user != null &&
             (!user.PasswordResetSentAt.HasValue || user.PasswordResetSentAt.Value <= now.AddMinutes(-2)))
@@ -458,7 +463,7 @@ public class AuthController : ControllerBase
         
         // Normalize the email identifier without accepting URI prefixes.
         var cleanEmail = request.Email?.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == cleanEmail);
+        var user = await _context.Users.FirstOrDefaultAsync(u => (u.NormalizedEmail == cleanEmail || (u.NormalizedEmail == null && u.Email.ToLower() == cleanEmail)));
         // Perform a hash verification for unknown accounts to reduce timing-based enumeration.
         var hashToVerify = user?.PasswordHash ?? DummyPasswordHash;
         var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password ?? string.Empty, hashToVerify);
