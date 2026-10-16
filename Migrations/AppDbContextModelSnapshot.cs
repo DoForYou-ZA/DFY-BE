@@ -625,6 +625,9 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("LastTwoFactorVerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<long?>("LastAuthenticatorTimeStep")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
