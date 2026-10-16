@@ -200,6 +200,7 @@ builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IBankingService, BankingService>();
 builder.Services.AddScoped<IUserPolicyService, UserPolicyService>();
 builder.Services.AddSingleton<IAuthenticatorService, AuthenticatorService>();
+builder.Services.AddHttpClient<IIdentityVerificationService, SumsubIdentityVerificationService>();
 builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
 builder.Services.AddHostedService<EscrowReleaseService>();
 
