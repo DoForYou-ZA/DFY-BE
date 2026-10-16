@@ -301,6 +301,8 @@ public class UserDto
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public bool IsVerified { get; set; }
+    public bool EmailVerified { get; set; }
+    public bool PhoneVerified { get; set; }
     public string IdentityVerificationStatus { get; set; } = "not_started";
     public bool AuthenticatorTwoFactorEnabled { get; set; }
 }
