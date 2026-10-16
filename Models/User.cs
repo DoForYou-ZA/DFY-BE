@@ -36,6 +36,15 @@ public class User
     public bool PhoneVerified { get; set; }
     // These are separate runner-eligibility facts; a syntactically valid ID or bank account is not identity verification.
     public string IdentityVerificationStatus { get; set; } = "not_started";
+    public string? IdentityVerificationProvider { get; set; }
+    // Stable non-PII reference sent as Sumsub externalUserId; it is never the ID number.
+    public string? IdentityVerificationExternalUserId { get; set; }
+    public string? IdentityVerificationApplicantId { get; set; }
+    public DateTime? IdentityVerificationStartedAt { get; set; }
+    public DateTime? IdentityVerificationUpdatedAt { get; set; }
+    public DateTime? IdentityVerificationLastEventAt { get; set; }
+    public string? IdentityVerificationHandoffTokenHash { get; set; }
+    public DateTime? IdentityVerificationHandoffExpiry { get; set; }
     public bool AuthenticatorTwoFactorEnabled { get; set; }
     public string? AuthenticatorSecretEncrypted { get; set; }
     public string? PendingAuthenticatorSecretEncrypted { get; set; }
