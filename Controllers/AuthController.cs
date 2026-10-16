@@ -22,6 +22,8 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly INotificationService _notificationService;
     private readonly IUserPolicyService _userPolicyService;
+    private const string CurrentTermsVersion = "terms-v1";
+    private const string CurrentPrivacyVersion = "privacy-v1";
 
     public AuthController(AppDbContext context, IConfiguration configuration, ILogger<AuthController> logger, INotificationService notificationService, IUserPolicyService userPolicyService)
     {
@@ -45,13 +47,15 @@ public class AuthController : ControllerBase
 
         if (firstName.Length is < 1 or > 50 || lastName.Length is < 1 or > 50)
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid first and last name." });
-        if (request.Password.Length < 12 || request.Password.Length > 128)
-            return BadRequest(new AuthResponse { Success = false, Message = "Use a password between 12 and 128 characters." });
+        if (request.Password.Length < 12 || request.Password.Length > 72 ||
+            System.Text.Encoding.UTF8.GetByteCount(request.Password) > 72)
+            return BadRequest(new AuthResponse { Success = false, Message = "Use a password between 12 and 72 characters with no more than 72 UTF-8 bytes." });
         if (userType is not ("creator" or "runner" or "both"))
             return BadRequest(new AuthResponse { Success = false, Message = "Choose a valid account type." });
         if (!request.TermsAccepted || !request.PrivacyAccepted ||
-            string.IsNullOrWhiteSpace(request.TermsVersion) || string.IsNullOrWhiteSpace(request.PrivacyVersion))
-            return BadRequest(new AuthResponse { Success = false, Message = "Accept the terms and privacy notice to create an account." });
+            !string.Equals(request.TermsVersion, CurrentTermsVersion, StringComparison.Ordinal) ||
+            !string.Equals(request.PrivacyVersion, CurrentPrivacyVersion, StringComparison.Ordinal))
+            return BadRequest(new AuthResponse { Success = false, Message = "Review and accept the current terms and privacy notice to create an account." });
         if (!_userPolicyService.IsValidPhone(request.PhoneNumber))
             return BadRequest(new AuthResponse { Success = false, Message = "Enter a valid South African phone number." });
         if (!_userPolicyService.TryGetAdultDateOfBirthFromSouthAfricanId(idNumber, out var derivedDateOfBirth))
@@ -114,12 +118,12 @@ public class AuthController : ControllerBase
             _logger.LogWarning(ex, "Failed to notify admins about newly registered user {UserId}", user.Id);
         }
 
-        var token = GenerateJwtToken(user);
-
+        // Do not issue a session during registration. Email/phone verification is
+        // still pending and this API must not imply the new account is verified.
         return Ok(new AuthResponse
         {
             Success = true,
-            Token = token,
+            Token = null,
             User = new UserDto
             {
                 Id = user.Id,
@@ -193,6 +197,10 @@ public class AuthController : ControllerBase
 
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return Unauthorized();
+
+        if (request.NewPassword.Length < 12 || request.NewPassword.Length > 72 ||
+            System.Text.Encoding.UTF8.GetByteCount(request.NewPassword) > 72)
+            return BadRequest(new ApiResponse<bool> { Success = false, Message = "Use a password between 12 and 72 characters with no more than 72 UTF-8 bytes." });
 
         if (string.Equals(request.CurrentPassword, request.NewPassword, StringComparison.Ordinal))
             return Ok(new ApiResponse<bool> { Success = false, Message = "New password must be different from the current password" });
