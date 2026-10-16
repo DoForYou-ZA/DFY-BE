@@ -125,6 +125,43 @@ public class UserPolicyServiceTests
     }
 
     [Fact]
+    public void Payout_eligibility_is_checked_separately_and_does_not_depend_on_role_preference()
+    {
+        var user = CompleteUser("creator");
+
+        Assert.True(_policy.CanReceivePayout(user));
+
+        // Preference changes never erase a financial obligation already earned.
+        user.UserType = "runner";
+        Assert.True(_policy.CanReceivePayout(user));
+
+        user.UserType = "both";
+        Assert.True(_policy.CanReceivePayout(user));
+    }
+
+    [Fact]
+    public void Payout_is_held_when_email_identity_or_authenticator_gate_is_missing()
+    {
+        var user = CompleteUser("runner");
+        Assert.True(_policy.CanReceivePayout(user));
+
+        user.EmailVerified = false;
+        Assert.False(_policy.CanReceivePayout(user));
+
+        user.EmailVerified = true;
+        user.IdentityVerificationStatus = "pending";
+        Assert.False(_policy.CanReceivePayout(user));
+
+        user.IdentityVerificationStatus = "passed";
+        user.AuthenticatorTwoFactorEnabled = false;
+        Assert.False(_policy.CanReceivePayout(user));
+
+        user.AuthenticatorTwoFactorEnabled = true;
+        user.IsArchived = true;
+        Assert.False(_policy.CanReceivePayout(user));
+    }
+
+    [Fact]
     public void Valid_adult_id_derives_the_encoded_date_of_birth()
     {
         const string validId = "8001015009087";
