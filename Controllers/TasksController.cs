@@ -51,7 +51,22 @@ public class TasksController : ControllerBase
 
         if (!_userPolicyService.CanCreateTasks(user))
             return StatusCode(StatusCodes.Status403Forbidden,
-                new ApiResponse<object> { Success = false, Message = "Only Creators and Both accounts can post tasks." });
+                new ApiResponse<object> { Success = false, Message = "Only verified Creator and Both accounts can post tasks." });
+
+        // Keep critical financial/time boundaries enforced in the action as well as
+        // DTO validation, so background callers and direct controller tests cannot bypass them.
+        if (request.Budget < 50m || request.Budget > 100000m)
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_BUDGET", Message = "Budget must be between R50 and R100,000." });
+
+        var nowUtc = DateTime.UtcNow;
+        if (request.DateNeeded <= nowUtc.AddMinutes(30) || request.DateNeeded > nowUtc.AddDays(365))
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_DATE", Message = "Choose a task date more than 30 minutes and no more than 365 days in the future." });
+
+        if (string.IsNullOrWhiteSpace(request.TaskName) || request.TaskName.Trim().Length > 60 ||
+            string.IsNullOrWhiteSpace(request.TaskDescription) || request.TaskDescription.Trim().Length is < 20 or > 500 ||
+            string.IsNullOrWhiteSpace(request.Category) ||
+            string.IsNullOrWhiteSpace(request.Area) || request.Area.Trim().Length < 2)
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_DETAILS", Message = "Enter a task name, a 20–500 character description, category, and location." });
 
         var ruleContext = new RuleContext { CurrentUser = user, Action = "CreateTask" };
         var canCreate = await _rulesEngine.CanPerformActionAsync("User", "CreateTask", ruleContext);
@@ -61,9 +76,6 @@ public class TasksController : ControllerBase
             var errorMessage = validationResults.FirstOrDefault(r => !r.IsValid)?.ErrorMessage ?? "You cannot create tasks";
             return Ok(new ApiResponse<object> { Success = false, Message = errorMessage });
         }
-
-        if (request.Budget < 50)
-            return Ok(new ApiResponse<object> { Success = false, Message = "validation failed: minimum budget is R50" });
 
         var budget = decimal.Round(request.Budget, 2, MidpointRounding.AwayFromZero);
         var taskId = GenerateTaskId();
