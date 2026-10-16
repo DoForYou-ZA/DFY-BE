@@ -42,6 +42,8 @@ public class User
     public string? AuthenticatorRecoveryCodeHashes { get; set; }
     public DateTime? AuthenticatorEnrolledAt { get; set; }
     public DateTime? LastTwoFactorVerifiedAt { get; set; }
+    // Highest accepted TOTP time step; prevents reuse of a valid six-digit code.
+    public long? LastAuthenticatorTimeStep { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Username { get; set; }
     public decimal WalletBalance { get; set; }
