@@ -45,4 +45,7 @@ public class User
     public string? PrivacyVersion { get; set; }
     public bool MarketingConsent { get; set; }
     public DateTime? MarketingConsentUpdatedAt { get; set; }
+    public string? PasswordResetTokenHash { get; set; }
+    public DateTime? PasswordResetExpiry { get; set; }
+    public string? SecurityStamp { get; set; }
 }
