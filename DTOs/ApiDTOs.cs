@@ -223,14 +223,7 @@ public class RegisterRequest
     [Required, StringLength(10)]
     public string UserType { get; set; } = string.Empty;
 
-    [Required, RegularExpression("^[0-9]{13}$")]
-    public string IdNumber { get; set; } = string.Empty;
-
-    [Required, StringLength(200, MinimumLength = 2)]
-    public string Address { get; set; } = string.Empty;
-
-    // Kept for client compatibility only; the server derives DOB from ID.
-    public DateTime? DateOfBirth { get; set; }
+    // Identity and address are collected later only when needed; neither is a signup requirement.
 
     [StringLength(80)]
     public string? Username { get; set; }
@@ -308,6 +301,8 @@ public class UserDto
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public bool IsVerified { get; set; }
+    public string IdentityVerificationStatus { get; set; } = "not_started";
+    public bool AuthenticatorTwoFactorEnabled { get; set; }
 }
 
 
