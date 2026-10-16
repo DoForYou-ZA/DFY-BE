@@ -27,6 +27,9 @@ public class User
     public string? PhoneVerificationCode { get; set; }
     public DateTime? PhoneVerificationExpiry { get; set; }
     public bool PhoneVerified { get; set; }
+    // These are separate runner-eligibility facts; a syntactically valid ID or bank account is not identity verification.
+    public string IdentityVerificationStatus { get; set; } = "not_started";
+    public bool AuthenticatorTwoFactorEnabled { get; set; }
     public DateTime? DateOfBirth { get; set; }
     public string? Username { get; set; }
     public decimal WalletBalance { get; set; }
