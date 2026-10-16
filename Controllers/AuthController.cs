@@ -485,17 +485,53 @@ public class AuthController : ControllerBase
             return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be verified. Please try again." });
 
         var normalizedEmail = googlePayload.Email.Trim().ToLowerInvariant();
-        var user = await _context.Users.FirstOrDefaultAsync(u =>
-            u.GoogleSubject == googlePayload.Subject ||
+
+        // Resolve the stable Google subject first. An OR query can return a different
+        // user's email match when the subject and email point at different accounts.
+        var userBySubject = await _context.Users.FirstOrDefaultAsync(u =>
+            u.GoogleSubject == googlePayload.Subject);
+        var userByEmail = await _context.Users.FirstOrDefaultAsync(u =>
             u.NormalizedEmail == normalizedEmail ||
             (u.NormalizedEmail == null && u.Email.ToLower() == normalizedEmail));
-        if (user == null)
-            return Conflict(new AuthResponse
+
+        User? user;
+        if (userBySubject != null)
+        {
+            var linkedEmail = string.IsNullOrWhiteSpace(userBySubject.NormalizedEmail)
+                ? userBySubject.Email.Trim().ToLowerInvariant()
+                : userBySubject.NormalizedEmail;
+            if (!string.Equals(linkedEmail, normalizedEmail, StringComparison.Ordinal) ||
+                (userByEmail != null && userByEmail.Id != userBySubject.Id))
             {
-                Success = false,
-                RequiresAccountSetup = true,
-                Message = "Choose an account type and complete the signup form to create your DoForYou account."
-            });
+                return Conflict(new AuthResponse
+                {
+                    Success = false,
+                    Message = "This Google identity does not match the linked DoForYou account. Use the original sign-in method or contact support."
+                });
+            }
+            user = userBySubject;
+        }
+        else
+        {
+            user = userByEmail;
+            if (user == null)
+                return Conflict(new AuthResponse
+                {
+                    Success = false,
+                    RequiresAccountSetup = true,
+                    Message = "Choose an account type and complete the signup form to create your DoForYou account."
+                });
+
+            if (!string.IsNullOrWhiteSpace(user.GoogleSubject) &&
+                !string.Equals(user.GoogleSubject, googlePayload.Subject, StringComparison.Ordinal))
+            {
+                return Conflict(new AuthResponse
+                {
+                    Success = false,
+                    Message = "This Google account cannot be linked to the selected DoForYou account."
+                });
+            }
+        }
         if (user.IsArchived)
             return Unauthorized(new AuthResponse { Success = false, Message = "Google sign-in could not be completed for this account." });
         if (user.LoginLockoutUntil.HasValue && user.LoginLockoutUntil.Value > DateTime.UtcNow)
