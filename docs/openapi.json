@@ -6328,6 +6328,9 @@
           "requiresAccountSetup": {
             "type": "boolean"
           },
+          "requiresAccountLink": {
+            "type": "boolean"
+          },
           "token": {
             "type": "string",
             "nullable": true

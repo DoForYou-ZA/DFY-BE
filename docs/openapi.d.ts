@@ -5891,6 +5891,7 @@ export interface components {
             success?: boolean;
             requiresTwoFactor?: boolean;
             requiresAccountSetup?: boolean;
+            requiresAccountLink?: boolean;
             token?: string | null;
             user?: components["schemas"]["UserDto"];
             message?: string | null;
