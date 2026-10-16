@@ -613,6 +613,9 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("PendingAuthenticatorSecretEncrypted")
                         .HasColumnType("text");
 
+                    b.Property<DateTime?>("PendingAuthenticatorSecretExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("AuthenticatorRecoveryCodeHashes")
                         .HasColumnType("text");
 
@@ -930,6 +933,12 @@ namespace DoForYou.API.Migrations
                     b.Property<int>("EmailVerificationSendCount")
                         .HasColumnType("integer");
 
+                    b.Property<DateTime?>("PasswordResetSendWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PasswordResetSendCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("EmailVerificationToken")
                         .HasColumnType("text");
 
@@ -999,6 +1008,15 @@ namespace DoForYou.API.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTime?>("PasswordResetSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("FailedLoginWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LoginLockoutUntil")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("SecurityStamp")
