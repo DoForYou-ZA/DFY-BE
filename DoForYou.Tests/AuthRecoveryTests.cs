@@ -582,6 +582,41 @@ public class AuthRecoveryTests
         Assert.True(user.SensitiveActionTokenExpiry <= DateTime.UtcNow.AddMinutes(5));
     }
 
+    [Fact]
+    public async System.Threading.Tasks.Task Reauthentication_requires_second_factor_when_authenticator_is_enabled()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            FirstName = "Runner",
+            LastName = "Test",
+            Email = "stepup-totp@example.com",
+            NormalizedEmail = "stepup-totp@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "runner",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("A-strong-current-passphrase-2026"),
+            EmailVerified = true,
+            AuthenticatorTwoFactorEnabled = true,
+            AuthenticatorSecretEncrypted = "encrypted-test-secret",
+            SecurityStamp = "existing-session-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender(), user.Id);
+        var result = await controller.Reauthenticate(new ReauthenticateRequest
+        {
+            CurrentPassword = "A-strong-current-passphrase-2026"
+        });
+
+        Assert.IsType<UnauthorizedObjectResult>(result.Result);
+        Assert.Null(user.SensitiveActionTokenHash);
+        Assert.Null(user.SensitiveActionTokenExpiry);
+    }
+
     private static AuthController CreateController(AppDbContext context, IEmailSender emailSender, int? authenticatedUserId = null)
     {
         var settings = new Dictionary<string, string?>
