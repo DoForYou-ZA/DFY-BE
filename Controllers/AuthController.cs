@@ -791,33 +791,6 @@ public class AuthController : ControllerBase
 
         _logger.LogInformation("Successful login for user id {UserId}", user.Id);
         return Ok(CreateSessionResponse(user, "Login successful"));
-            User = new UserDto
-            {
-                Id = user.Id,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                Email = user.Email,
-                PhoneNumber = user.PhoneNumber,
-                ProfileCompleted = user.ProfileCompleted,
-                ProfileCompletion = _userPolicyService.GetProfileCompletion(user),
-                MissingProfileFields = _userPolicyService.GetMissingProfileFields(user).ToArray(),
-                CanCreateTasks = _userPolicyService.CanCreateTasks(user),
-                CanAcceptTasks = _userPolicyService.CanAcceptTasks(user),
-                Rating = user.Rating,
-                CompletedTasks = user.CompletedTasks,
-                Roles = user.Roles,
-                IsAdmin = user.Roles?.Contains("Admin") == true,
-                UserType = user.UserType,
-                CreatedAt = user.CreatedAt,
-                LastLoginAt = user.LastLoginAt,
-                IsVerified = user.IsVerified,
-                EmailVerified = user.EmailVerified,
-                PhoneVerified = user.PhoneVerified,
-                IdentityVerificationStatus = user.IdentityVerificationStatus,
-                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled
-            },
-            Message = "Login successful"
-        });
     }
 
     private async Task<GoogleJsonWebSignature.Payload?> ValidateGoogleIdTokenAsync(string idToken)
