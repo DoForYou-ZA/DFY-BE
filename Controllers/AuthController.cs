@@ -898,6 +898,12 @@ public class AuthController : ControllerBase
         Message = message
     };
 
+    private int? GetCurrentUserId()
+    {
+        var value = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        return int.TryParse(value, out var userId) ? userId : null;
+    }
+
     private static string CreateSecureToken() =>
         WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
 
