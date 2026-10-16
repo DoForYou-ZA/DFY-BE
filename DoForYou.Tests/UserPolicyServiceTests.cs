@@ -12,6 +12,7 @@ public class UserPolicyServiceTests
         FirstName = "Creator",
         LastName = "Demo",
         Email = "creator@example.com",
+        EmailVerified = true,
         PhoneNumber = "0821234567",
         Address = "Sandton",
         IdNumber = "8001015009087",
