@@ -534,6 +534,42 @@ public class AuthRecoveryTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Google_only_account_requires_fresh_Google_assertion_for_authenticator_setup()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        var user = new User
+        {
+            Id = 75,
+            FirstName = "Google",
+            LastName = "Only",
+            Email = "google-totp-setup@example.com",
+            NormalizedEmail = "google-totp-setup@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "runner",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("unused-random-password-value-2026"),
+            PasswordLoginEnabled = false,
+            GoogleSubject = "verified-google-subject",
+            EmailVerified = true,
+            LastLoginAt = DateTime.UtcNow,
+            SecurityStamp = "google-session-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateController(context, new RecordingEmailSender(), user.Id);
+        var result = await controller.SetupTwoFactor(new TwoFactorSetupRequest());
+
+        var unauthorized = Assert.IsType<UnauthorizedObjectResult>(result.Result);
+        Assert.IsType<ApiResponse<object>>(unauthorized.Value);
+        Assert.Null(user.PendingAuthenticatorSecretEncrypted);
+        Assert.Null(user.PendingAuthenticatorSecretExpiry);
+        Assert.False(user.AuthenticatorTwoFactorEnabled);
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task Recovery_code_can_only_be_used_once_for_sign_in()
     {
         var options = new DbContextOptionsBuilder<AppDbContext>()
