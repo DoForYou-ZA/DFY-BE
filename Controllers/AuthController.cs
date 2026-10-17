@@ -1493,7 +1493,7 @@ public class AuthController : ControllerBase
         return _emailSender.SendAsync(email, "Reset your DoForYou password", body, cancellationToken);
     }
 
-    private async Task SendPasswordChangedNoticeBestEffortAsync(int userId, string email)
+    private async System.Threading.Tasks.Task SendPasswordChangedNoticeBestEffortAsync(int userId, string email)
     {
         try
         {
