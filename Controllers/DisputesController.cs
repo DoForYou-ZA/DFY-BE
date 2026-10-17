@@ -40,8 +40,10 @@ public class DisputesController : ControllerBase
         if (task.CreatedByUserId != userId && task.AcceptedByUserId != userId)
             return Ok(new ApiResponse<object> { Success = false, Message = "Not authorized to dispute this task" });
 
-        if (task.TaskStatus == "RunnerPaid" || task.EscrowStatus == "released" || task.EscrowStatus == "refunded")
-            return Ok(new ApiResponse<object> { Success = false, Message = "This task is no longer eligible for a dispute" });
+        if (task.TaskStatus != "AwaitingConfirmation" ||
+            task.EscrowStatus != "held" ||
+            task.PaymentStatus != "EscrowHeld")
+            return Conflict(new ApiResponse<object> { Success = false, Message = "A dispute can only be raised for completed work while its escrow is held." });
 
         var existingOpenDispute = await _context.Disputes
             .AnyAsync(d => d.TaskId == task.Id && d.Status == "Open");
@@ -59,12 +61,9 @@ public class DisputesController : ControllerBase
 
         // A dispute must stop the normal 24-hour creator auto-release path. The task remains
         // completed/held so an admin can later release it into the Paystack payout flow.
-        if (task.EscrowStatus == "held" || task.PaymentStatus == "EscrowHeld")
-        {
-            task.EscrowStatus = "disputed";
-            task.PaymentStatus = "DisputePending";
-            task.UpdatedAt = DateTime.UtcNow;
-        }
+        task.EscrowStatus = "disputed";
+        task.PaymentStatus = "DisputePending";
+        task.UpdatedAt = DateTime.UtcNow;
 
         _context.Disputes.Add(dispute);
         await _context.SaveChangesAsync();

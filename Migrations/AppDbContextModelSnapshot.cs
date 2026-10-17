@@ -600,6 +600,34 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("NormalizedEmail")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("GoogleSubject")
+                        .HasColumnType("text");
+
+                    b.Property<string>("AuthenticatorSecretEncrypted")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PendingAuthenticatorSecretEncrypted")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PendingAuthenticatorSecretExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("AuthenticatorRecoveryCodeHashes")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("AuthenticatorEnrolledAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LastTwoFactorVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("LastAuthenticatorTimeStep")
+                        .HasColumnType("bigint");
+
                     b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
@@ -874,6 +902,9 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("Address")
                         .HasColumnType("text");
 
+                    b.Property<bool>("AuthenticatorTwoFactorEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Bio")
                         .HasColumnType("text");
 
@@ -896,6 +927,21 @@ namespace DoForYou.API.Migrations
                     b.Property<DateTime?>("EmailVerificationExpiry")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateTime?>("EmailVerificationSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("EmailVerificationSendWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("EmailVerificationSendCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("PasswordResetSendWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("PasswordResetSendCount")
+                        .HasColumnType("integer");
+
                     b.Property<string>("EmailVerificationToken")
                         .HasColumnType("text");
 
@@ -908,6 +954,40 @@ namespace DoForYou.API.Migrations
 
                     b.Property<string>("IdNumber")
                         .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationStatus")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationProvider")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationExternalUserId")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentityVerificationApplicantId")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("IdentityVerificationStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IdentityVerificationUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IdentityVerificationLastEventAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdentityVerificationHandoffTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("IdentityVerificationHandoffExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("IdentityVerificationAttemptWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("IdentityVerificationAttemptCount")
+                        .HasColumnType("integer");
 
                     b.Property<bool>("IsAvailable")
                         .HasColumnType("boolean");
@@ -935,6 +1015,9 @@ namespace DoForYou.API.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("PasswordLoginEnabled")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("PhoneNumber")
                         .IsRequired()
                         .HasColumnType("text");
@@ -954,6 +1037,33 @@ namespace DoForYou.API.Migrations
                     b.Property<string>("ProfilePhotoUrl")
                         .HasColumnType("text");
 
+                    b.Property<string>("PasswordResetTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PasswordResetExpiry")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PasswordResetSentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("FailedLoginAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("FailedLoginWindowStartAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("LoginLockoutUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SecurityStamp")
+                        .HasColumnType("text");
+
+                    b.Property<string>("SensitiveActionTokenHash")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SensitiveActionTokenExpiry")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<decimal>("Rating")
                         .HasColumnType("numeric");
 
@@ -961,6 +1071,27 @@ namespace DoForYou.API.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("ServiceCategories")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("TermsAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("TermsVersion")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PrivacyAcceptedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PrivacyVersion")
+                        .HasColumnType("text");
+
+                    b.Property<bool>("MarketingConsent")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("MarketingConsentUpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MarketingConsentVersion")
                         .HasColumnType("text");
 
                     b.Property<string>("UserType")
@@ -975,7 +1106,132 @@ namespace DoForYou.API.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("IdentityVerificationExternalUserId")
+                        .IsUnique()
+                        .HasFilter("\"IdentityVerificationExternalUserId\" IS NOT NULL")
+                        .HasDatabaseName("IX_Users_IdentityVerificationExternalUserId");
+
+                    b.HasIndex("GoogleSubject")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Users_GoogleSubject");
+
+                    b.HasIndex("NormalizedEmail")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Users_NormalizedEmail");
+
                     b.ToTable("Users");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.UserConsentEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Accepted")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ConsentType")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTime>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "ConsentType", "RecordedAt")
+                        .HasDatabaseName("IX_UserConsentEvents_UserId_ConsentType_RecordedAt");
+
+                    b.ToTable("UserConsentEvents");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.IdentityVerificationEvent", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("EventHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(24)
+                        .HasColumnType("character varying(24)");
+
+                    b.Property<string>("ProviderApplicantId")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResultStatus")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<int>("UserId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "EventHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_IdentityVerificationEvents_Provider_EventHash");
+
+                    b.HasIndex("UserId", "ReceivedAt")
+                        .HasDatabaseName("IX_IdentityVerificationEvents_UserId_ReceivedAt");
+
+                    b.ToTable("IdentityVerificationEvents");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.UserConsentEvent", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("DoForYou.API.Models.IdentityVerificationEvent", b =>
+                {
+                    b.HasOne("DoForYou.API.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("DoForYou.API.Models.WalletTransaction", b =>

@@ -49,12 +49,24 @@ public class TasksController : ControllerBase
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return Unauthorized();
 
-        if (!_userPolicyService.IsProfileComplete(user))
-            return Ok(new ApiResponse<object> { Success = false, Message = "Please complete your profile before creating tasks" });
-
         if (!_userPolicyService.CanCreateTasks(user))
             return StatusCode(StatusCodes.Status403Forbidden,
-                new ApiResponse<object> { Success = false, Message = "Only Creators and Both accounts can post tasks." });
+                new ApiResponse<object> { Success = false, Message = "Only verified Creator and Both accounts can post tasks." });
+
+        // Keep critical financial/time boundaries enforced in the action as well as
+        // DTO validation, so background callers and direct controller tests cannot bypass them.
+        if (request.Budget < 50m || request.Budget > 100000m)
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_BUDGET", Message = "Budget must be between R50 and R100,000." });
+
+        var nowUtc = DateTime.UtcNow;
+        if (request.DateNeeded <= nowUtc.AddMinutes(30) || request.DateNeeded > nowUtc.AddDays(365))
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_DATE", Message = "Choose a task date more than 30 minutes and no more than 365 days in the future." });
+
+        if (string.IsNullOrWhiteSpace(request.TaskName) || request.TaskName.Trim().Length > 60 ||
+            string.IsNullOrWhiteSpace(request.TaskDescription) || request.TaskDescription.Trim().Length is < 20 or > 500 ||
+            string.IsNullOrWhiteSpace(request.Category) ||
+            string.IsNullOrWhiteSpace(request.Area) || request.Area.Trim().Length < 2)
+            return BadRequest(new ApiResponse<object> { Success = false, Error = "INVALID_TASK_DETAILS", Message = "Enter a task name, a 20–500 character description, category, and location." });
 
         var ruleContext = new RuleContext { CurrentUser = user, Action = "CreateTask" };
         var canCreate = await _rulesEngine.CanPerformActionAsync("User", "CreateTask", ruleContext);
@@ -64,9 +76,6 @@ public class TasksController : ControllerBase
             var errorMessage = validationResults.FirstOrDefault(r => !r.IsValid)?.ErrorMessage ?? "You cannot create tasks";
             return Ok(new ApiResponse<object> { Success = false, Message = errorMessage });
         }
-
-        if (request.Budget < 50)
-            return Ok(new ApiResponse<object> { Success = false, Message = "validation failed: minimum budget is R50" });
 
         var budget = decimal.Round(request.Budget, 2, MidpointRounding.AwayFromZero);
         var taskId = GenerateTaskId();
@@ -376,12 +385,14 @@ public class TasksController : ControllerBase
         if (user == null)
             return Unauthorized();
 
-        if (!_userPolicyService.IsProfileComplete(user))
-            return Ok(new ApiResponse<bool> { Success = false, Message = "Please complete your profile before claiming tasks" });
-
         if (!_userPolicyService.CanAcceptTasks(user))
             return StatusCode(StatusCodes.Status403Forbidden,
-                new ApiResponse<bool> { Success = false, Message = "Only Runners and Both accounts can accept tasks." });
+                new ApiResponse<bool>
+                {
+                    Success = false,
+                    Error = "RUNNER_ELIGIBILITY_REQUIRED",
+                    Message = "Complete runner identity verification and enable authenticator-based two-factor authentication before accepting paid tasks."
+                });
 
         if (!request.TermsAccepted)
             return BadRequest(new ApiResponse<bool> { Success = false, Message = "You must accept the runner terms before accepting a task." });
@@ -404,20 +415,6 @@ public class TasksController : ControllerBase
 
         if (task.PaymentStatus != "EscrowHeld")
             return Conflict(new ApiResponse<bool> { Success = false, Error = "PAYMENT_NOT_SECURED", Message = "This task cannot be accepted until the creator's payment is secured." });
-
-        var hasVerifiedPayoutAccount = await _context.BankAccounts.AnyAsync(b =>
-            b.UserId == userId.Value &&
-            b.IsActive &&
-            b.IsVerified &&
-            b.ProviderReference != null &&
-            b.ProviderReference != "");
-        if (!hasVerifiedPayoutAccount)
-            return Conflict(new ApiResponse<bool>
-            {
-                Success = false,
-                Error = "PAYOUT_BANK_ACCOUNT_REQUIRED",
-                Message = "Add and verify a Paystack bank account in Payout Settings before accepting a task."
-            });
 
         // Relational providers use a conditional update to make the claim atomic.
         var claimedAt = DateTime.UtcNow;
@@ -545,7 +542,14 @@ public class TasksController : ControllerBase
         var currentUserId = GetCurrentUserId();
         if (currentUserId == null) return Unauthorized();
 
-        var task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser).FirstOrDefaultAsync(t => t.TaskId == taskId);
+        // Public TaskId is the canonical identifier. Accept a numeric database id
+        // only as a legacy notification/deep-link fallback, and always return the
+        // canonical TaskId in the response.
+        var task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser)
+            .FirstOrDefaultAsync(t => t.TaskId == taskId);
+        if (task == null && int.TryParse(taskId, out var numericTaskId))
+            task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser)
+                .FirstOrDefaultAsync(t => t.Id == numericTaskId);
         if (task == null) return NotFound(new ApiResponse<object> { Success = false, Message = "Task not found" });
 
         // Detailed task views may contain participant contact details. Only the creator,
@@ -744,8 +748,15 @@ public class TasksController : ControllerBase
                 return Ok(new ApiResponse<object> { Success = false, Message = "Date needed must be more than 30 minutes and no more than 365 days in the future." });
             task.DateNeeded = dateNeeded;
         }
-        if (request.Budget.HasValue && request.Budget.Value >= 50)
+        if (request.Budget.HasValue)
         {
+            if (request.Budget.Value < 50 || request.Budget.Value > 100000)
+                return BadRequest(new ApiResponse<object> { Success = false, Message = "Budget must be between R50 and R100,000." });
+
+            var hasPaymentAttempt = await _context.PaymentAttempts.AnyAsync(p => p.TaskId == task.Id);
+            if (hasPaymentAttempt)
+                return Conflict(new ApiResponse<object> { Success = false, Message = "The task budget cannot be changed after checkout has been created. Cancel this task and create a new one." });
+
             task.Budget = decimal.Round(request.Budget.Value, 2, MidpointRounding.AwayFromZero);
             var commission = _escrowService.CalculateCommission(task.Budget);
             task.CommissionAmount = commission;

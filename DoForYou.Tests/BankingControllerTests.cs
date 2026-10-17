@@ -1,4 +1,6 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using DoForYou.API.Controllers;
 using DoForYou.API.Data;
@@ -13,6 +15,38 @@ namespace DoForYou.Tests;
 
 public class BankingControllerTests
 {
+    [Fact]
+    public async System.Threading.Tasks.Task AddBankAccount_RequiresOneTimeRecentReauthenticationToken()
+    {
+        using var context = CreateContext();
+        var user = CreateUser(9);
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var banking = new FakeBankingService
+        {
+            VerificationResult = new BankVerificationResult(true, "Bank account verified.", "RCP_TEST")
+        };
+        var banks = new FakePaystackBankProvider(new[]
+        {
+            new SupportedBank("632005", "Canonical Bank", "123456")
+        });
+        var controller = CreateController(context, user.Id, banking, banks, issueStepUpToken: false);
+
+        var result = await controller.AddBankAccount(new AddBankAccountRequest
+        {
+            BankCode = "632005",
+            BankGroupId = "632005",
+            AccountNumber = "1234567890",
+            AccountHolderName = "Test Runner",
+            AccountType = "Savings"
+        }, CancellationToken.None);
+
+        Assert.Equal(428, Assert.IsType<ObjectResult>(result.Result).StatusCode);
+        Assert.Empty(context.BankAccounts);
+        Assert.Equal(0, banking.VerifyCallCount);
+    }
+
     [Fact]
     public async System.Threading.Tasks.Task AddBankAccount_UsesPaystackCanonicalBankDetails()
     {
@@ -577,8 +611,22 @@ public class BankingControllerTests
         AppDbContext context,
         int userId,
         IBankingService bankingService,
-        IBankProvider bankProvider)
+        IBankProvider bankProvider,
+        bool issueStepUpToken = true)
     {
+        const string stepUpToken = "test-step-up-token-for-one-bank-mutation";
+        if (issueStepUpToken)
+        {
+            var user = context.Users.SingleOrDefault(candidate => candidate.Id == userId);
+            if (user != null)
+            {
+                user.SensitiveActionTokenHash = Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(stepUpToken))).ToLowerInvariant();
+                user.SensitiveActionTokenExpiry = DateTime.UtcNow.AddMinutes(5);
+                context.SaveChanges();
+            }
+        }
+
         var controller =
             new BankingController(
                 context,
@@ -603,6 +651,8 @@ public class BankingControllerTests
                                     "TestAuth"))
                     }
             };
+        if (issueStepUpToken)
+            controller.HttpContext.Request.Headers["X-DFY-Step-Up-Token"] = stepUpToken;
 
         return controller;
     }

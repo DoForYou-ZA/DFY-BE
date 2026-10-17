@@ -1,6 +1,7 @@
 // Full DFY staging scenario validation runs alongside the API unit scenarios.
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text;
 using DoForYou.API.Controllers;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
@@ -30,7 +31,7 @@ public class ScenarioTests
         var request = new CreateTaskRequest
         {
             TaskName = "Fix the leaking tap",
-            TaskDescription = "Fix the leaking tap",
+            TaskDescription = "Fix the leaking tap in the kitchen",
             Category = "Home",
             Area = "Johannesburg",
             DateNeeded = DateTime.UtcNow.AddDays(2),
@@ -46,6 +47,151 @@ public class ScenarioTests
 
         Assert.True(response.Success, response.Message);
         Assert.Equal("Task created successfully. Complete payment to activate.", response.Message);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task BothAccountCanPostWithoutRunnerIdentityOrPayoutSetup()
+    {
+        using var context = CreateContext(nameof(BothAccountCanPostWithoutRunnerIdentityOrPayoutSetup));
+        var user = CreateUser(1, "both", false, "both-without-kyc@test.com");
+        user.IdNumber = null;
+        user.DateOfBirth = null;
+        user.Address = null;
+        user.IdentityVerificationStatus = "not_started";
+        user.AuthenticatorTwoFactorEnabled = false;
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var response = Assert.IsType<ApiResponse<object>>(
+            Assert.IsType<OkObjectResult>(result.Result).Value);
+        Assert.True(response.Success, response.Message);
+        Assert.Single(await context.Tasks.ToListAsync());
+        Assert.Null(user.IdNumber);
+        Assert.Null(user.Address);
+        Assert.Equal("not_started", user.IdentityVerificationStatus);
+        Assert.False(user.AuthenticatorTwoFactorEnabled);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task UnverifiedBothAccountCannotPostAndCreatesNoTask()
+    {
+        using var context = CreateContext(nameof(UnverifiedBothAccountCannotPostAndCreatesNoTask));
+        var user = CreateUser(1, "both", false, "unverified-both@test.com");
+        user.EmailVerified = false;
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var forbidden = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(await context.Tasks.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task RunnerOnlyAccountCannotPostTask()
+    {
+        using var context = CreateContext(nameof(RunnerOnlyAccountCannotPostTask));
+        var user = CreateUser(1, "runner", true, "runner-only@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var forbidden = Assert.IsType<ObjectResult>(result.Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, forbidden.StatusCode);
+        Assert.Empty(await context.Tasks.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task TaskBudgetAboveMaximumIsRejectedBeforeAnyTaskIsCreated()
+    {
+        using var context = CreateContext(nameof(TaskBudgetAboveMaximumIsRejectedBeforeAnyTaskIsCreated));
+        var user = CreateUser(1, "creator", true, "budget-limit@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 100000.01m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(badRequest.Value);
+        Assert.False(response.Success);
+        Assert.Equal("INVALID_TASK_BUDGET", response.Error);
+        Assert.Empty(await context.Tasks.ToListAsync());
+        Assert.Empty(await context.PaymentAttempts.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task TaskDateInsideThirtyMinuteBoundaryIsRejectedWithoutSideEffects()
+    {
+        using var context = CreateContext(nameof(TaskDateInsideThirtyMinuteBoundaryIsRejectedWithoutSideEffects));
+        var user = CreateUser(1, "creator", true, "task-date-boundary@test.com");
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, user.Id);
+        var result = await controller.CreateTask(new CreateTaskRequest
+        {
+            TaskName = "Book a local gardener",
+            TaskDescription = "Find someone to mow the lawn and clear the garden this weekend.",
+            Category = "Home",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddMinutes(5),
+            Budget = 200m,
+            Priority = "Standard",
+            TermsAccepted = true
+        });
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(badRequest.Value);
+        Assert.Equal("INVALID_TASK_DATE", response.Error);
+        Assert.Empty(await context.Tasks.ToListAsync());
     }
 
     [Fact]
@@ -150,6 +296,106 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Payment_webhook_replay_is_idempotent_and_currency_mismatch_has_no_effect()
+    {
+        using var context = CreateContext(nameof(Payment_webhook_replay_is_idempotent_and_currency_mismatch_has_no_effect));
+        var creator = CreateUser(1, "creator", true, "payment-webhook-creator@test.com");
+        context.Users.Add(creator);
+        const string reference = "DFY-CHARGE-WEBHOOK-REPLAY";
+        var task = new TaskEntity
+        {
+            Id = 8810,
+            TaskId = "DFY-WEBHOOK-CHARGE-1",
+            TaskDescription = "Charge replay and currency validation",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 500m,
+            PaymentReference = reference,
+            PaymentStatus = "Pending",
+            EscrowStatus = "pending",
+            TaskStatus = "PendingPayment",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var attempt = new PaymentAttempt
+        {
+            TaskId = task.Id,
+            Reference = reference,
+            Provider = "Paystack",
+            Amount = task.Budget,
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+            Task = task
+        };
+        context.Tasks.Add(task);
+        context.PaymentAttempts.Add(attempt);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+        const string validEvent = """{"event":"charge.success","data":{"id":"TX-WEBHOOK-1","reference":"DFY-CHARGE-WEBHOOK-REPLAY","amount":50000,"currency":"ZAR","status":"success"}}""";
+
+        Assert.IsType<OkResult>(await InvokeWebhook(controller, validEvent));
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("EscrowHeld", task.PaymentStatus);
+        Assert.Equal("Completed", attempt.Status);
+        Assert.Single(await context.Payments.ToListAsync());
+        Assert.Single(await context.AuditLogs.Where(a => a.Action == "PaystackPaymentVerified").ToListAsync());
+
+        Assert.IsType<OkResult>(await InvokeWebhook(controller, validEvent));
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("Completed", attempt.Status);
+        Assert.Single(await context.PaymentAttempts.ToListAsync());
+        Assert.Single(await context.Payments.ToListAsync());
+        Assert.Single(await context.AuditLogs.Where(a => a.Action == "PaystackPaymentVerified").ToListAsync());
+
+        var invalidCurrency = """{"event":"charge.success","data":{"id":"TX-WEBHOOK-2","reference":"DFY-CHARGE-WEBHOOK-REPLAY","amount":50000,"currency":"USD","status":"success"}}""";
+        var invalidResult = await InvokeWebhook(controller, invalidCurrency);
+        Assert.IsType<BadRequestResult>(invalidResult);
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("EscrowHeld", task.PaymentStatus);
+        Assert.Single(await context.PaymentAttempts.ToListAsync());
+        Assert.Single(await context.Payments.ToListAsync());
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id()
+    {
+        using var context = CreateContext(nameof(Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id));
+        var creator = CreateUser(1, "creator", true, "numeric-link-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "numeric-link-runner@test.com");
+        context.Users.AddRange(creator, runner);
+        var task = new TaskEntity
+        {
+            Id = 8123,
+            TaskId = "DFY-CANONICAL-8123",
+            TaskDescription = "Notification legacy ID test",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            PaymentStatus = "EscrowHeld",
+            EscrowStatus = "held",
+            TaskStatus = "Posted",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, creator.Id);
+        var result = await controller.GetTask("8123");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(ok.Value);
+        Assert.True(response.Success);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(response.Data));
+        Assert.Equal("DFY-CANONICAL-8123", json.RootElement.GetProperty("taskId").GetString());
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task RunnerCanClaimPostedTask()
     {
         using var context = CreateContext(nameof(RunnerCanClaimPostedTask));
@@ -190,9 +436,9 @@ public class ScenarioTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task RunnerCannotClaimPostedTaskWithoutPaystackRecipient()
+    public async System.Threading.Tasks.Task VerifiedRunnerCanClaimTaskBeforePayoutAccountSetup()
     {
-        using var context = CreateContext(nameof(RunnerCannotClaimPostedTaskWithoutPaystackRecipient));
+        using var context = CreateContext(nameof(VerifiedRunnerCanClaimTaskBeforePayoutAccountSetup));
         var poster = CreateUser(1, "creator", true, "poster@test.com");
         var runner = CreateUser(2, "runner", true, "runner@test.com");
         context.Users.AddRange(poster, runner);
@@ -232,11 +478,10 @@ public class ScenarioTests
             TermsAccepted = true
         });
 
-        var conflict = Assert.IsType<ConflictObjectResult>(result.Result);
-        var response = Assert.IsType<ApiResponse<bool>>(conflict.Value);
-        Assert.False(response.Success);
-        Assert.Equal("PAYOUT_BANK_ACCOUNT_REQUIRED", response.Error);
-        Assert.Equal("Posted", (await context.Tasks.SingleAsync(t => t.Id == task.Id)).TaskStatus);
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(ok.Value);
+        Assert.True(response.Success);
+        Assert.Equal("Claimed", (await context.Tasks.SingleAsync(t => t.Id == task.Id)).TaskStatus);
     }
 
     [Fact]
@@ -470,6 +715,164 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Late_payout_failure_does_not_downgrade_completed_transfer_and_return_is_terminal()
+    {
+        using var context = CreateContext(nameof(Late_payout_failure_does_not_downgrade_completed_transfer_and_return_is_terminal));
+        var creator = CreateUser(1, "creator", true, "webhook-payout-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "webhook-payout-runner@test.com");
+        var bank = CreateVerifiedBankAccount(runner.Id);
+        context.Users.AddRange(creator, runner);
+        context.BankAccounts.Add(bank);
+        var task = new TaskEntity
+        {
+            Id = 8801,
+            TaskId = "DFY-WEBHOOK-PAYOUT-1",
+            TaskDescription = "Webhook payout ordering",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            CommissionAmount = 30m,
+            PayoutAmount = 170m,
+            PaymentStatus = "EscrowReleased",
+            EscrowStatus = "released",
+            PayoutStatus = "Processing",
+            TaskStatus = "PayoutPending",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var payout = new Payout
+        {
+            TaskId = task.Id,
+            RunnerId = runner.Id,
+            BankAccountId = bank.Id,
+            Amount = 170m,
+            Provider = "Paystack",
+            MerchantReference = "DFY-PAYOUT-WEBHOOK-1",
+            Status = "Processing",
+            CreatedAt = DateTime.UtcNow,
+            Task = task,
+            Runner = runner,
+            BankAccount = bank
+        };
+        context.Tasks.Add(task);
+        context.Payouts.Add(payout);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+
+        var success = await InvokeWebhook(controller,
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(success);
+        Assert.Equal("Completed", payout.Status);
+        Assert.Equal("RunnerPaid", task.TaskStatus);
+
+        var delayedFailure = await InvokeWebhook(controller,
+            """{"event":"transfer.failed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(delayedFailure);
+        Assert.Equal("Completed", payout.Status);
+        Assert.Equal("RunnerPaid", task.TaskStatus);
+
+        var returned = await InvokeWebhook(controller,
+            """{"event":"transfer.reversed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(returned);
+        Assert.Equal("Returned", payout.Status);
+        Assert.Equal("PayoutFailed", task.TaskStatus);
+
+        var lateSuccess = await InvokeWebhook(controller,
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(lateSuccess);
+        Assert.Equal("Returned", payout.Status);
+        Assert.Equal("PayoutFailed", task.TaskStatus);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Late_refund_failure_does_not_reverse_completed_refund()
+    {
+        using var context = CreateContext(nameof(Late_refund_failure_does_not_reverse_completed_refund));
+        var creator = CreateUser(1, "creator", true, "webhook-refund-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "webhook-refund-runner@test.com");
+        context.Users.AddRange(creator, runner);
+        var task = new TaskEntity
+        {
+            Id = 8802,
+            TaskId = "DFY-WEBHOOK-REFUND-1",
+            TaskDescription = "Webhook refund ordering",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            PaymentStatus = "DisputePending",
+            EscrowStatus = "disputed",
+            TaskStatus = "Completed",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var refund = new Refund
+        {
+            TaskId = task.Id,
+            RefundId = "REF-WEBHOOK-1",
+            TransactionId = "TX-WEBHOOK-1",
+            Amount = 200m,
+            Reason = "Test refund state ordering",
+            Provider = "Paystack",
+            Status = "Processing",
+            CreatedAt = DateTime.UtcNow,
+            Task = task
+        };
+        context.Tasks.Add(task);
+        context.Refunds.Add(refund);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+
+        var processed = await InvokeWebhook(controller,
+            """{"event":"refund.processed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"currency":"ZAR","status":"processed"}}""");
+        Assert.IsType<OkResult>(processed);
+        Assert.Equal("Complete", refund.Status);
+        Assert.Equal("Refunded", task.PaymentStatus);
+        Assert.Equal("Cancelled", task.TaskStatus);
+
+        var delayedFailure = await InvokeWebhook(controller,
+            """{"event":"refund.failed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"currency":"ZAR","status":"failed"}}""");
+        Assert.IsType<OkResult>(delayedFailure);
+        Assert.Equal("Complete", refund.Status);
+        Assert.Equal("Refunded", task.PaymentStatus);
+        Assert.Equal("Cancelled", task.TaskStatus);
+    }
+
+    private static PaymentController CreatePaymentController(AppDbContext context)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FrontendUrl"] = "https://dfy-fe-staging.onrender.com",
+                ["BackendUrl"] = "https://dfy-be-staging.onrender.com"
+            })
+            .Build();
+        return new PaymentController(
+            context,
+            new FakePaystackPaymentProvider(),
+            configuration,
+            NullLogger<PaymentController>.Instance,
+            new NoOpNotificationService());
+    }
+
+    private static async System.Threading.Tasks.Task<IActionResult> InvokeWebhook(PaymentController controller, string payload)
+    {
+        var body = new MemoryStream(Encoding.UTF8.GetBytes(payload));
+        var http = new DefaultHttpContext();
+        http.Request.Body = body;
+        http.Request.ContentLength = body.Length;
+        http.Request.ContentType = "application/json";
+        http.Request.Headers["x-paystack-signature"] = "test-signature";
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        return await controller.Webhook();
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task EscrowRelease_CreatesPendingPaystackPayout()
     {
         using var context = CreateContext(nameof(EscrowRelease_CreatesPendingPaystackPayout));
@@ -678,6 +1081,9 @@ private static AppDbContext CreateContext(string name)
             Roles = "User",
             PasswordHash = "hash",
             IsVerified = true,
+            EmailVerified = true,
+            IdentityVerificationStatus = userType == "runner" ? "passed" : "not_started",
+            AuthenticatorTwoFactorEnabled = userType == "runner",
         };
     }
 

@@ -37,9 +37,9 @@ public class ChatHub : Hub
             throw new HubException("Invalid message.");
 
         var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
-        await Clients.Group($"task-{taskId}").SendAsync("ReceiveMessage", new
+        await Clients.Group($"task-{task.TaskId}").SendAsync("ReceiveMessage", new
         {
-            taskId,
+            taskId = task.TaskId,
             senderId = userId,
             message,
             timestamp = DateTime.UtcNow
@@ -48,15 +48,22 @@ public class ChatHub : Hub
 
     public async Task JoinTaskChat(string taskId)
     {
-        await EnsureTaskMember(taskId);
-        await Groups.AddToGroupAsync(Context.ConnectionId, $"task-{taskId}");
+        var task = await EnsureTaskMember(taskId);
+        // Canonical public ID is the shared SignalR group key. Also join the
+        // requested alias for compatibility with existing numeric-ID clients.
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"task-{task.TaskId}");
+        if (!string.Equals(taskId, task.TaskId, StringComparison.Ordinal))
+            await Groups.AddToGroupAsync(Context.ConnectionId, $"task-{taskId}");
         _logger.LogDebug("User {UserId} joined task chat {TaskId}",
-            Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value, taskId);
+            Context.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value, task.TaskId);
     }
 
     public async Task LeaveTaskChat(string taskId)
     {
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"task-{taskId}");
+        var task = await EnsureTaskMember(taskId);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"task-{task.TaskId}");
+        if (!string.Equals(taskId, task.TaskId, StringComparison.Ordinal))
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"task-{taskId}");
     }
 
     private async Task<DoForYou.API.Models.Task> EnsureTaskMember(string taskId)

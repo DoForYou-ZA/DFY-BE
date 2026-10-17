@@ -5,6 +5,9 @@ using System.Text;
 using System.Security.Claims;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using DoForYou.API.Data;
 using DoForYou.API.Services;
 using DoForYou.API.Services.Background;
@@ -149,6 +152,43 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// Forward only the headers that are needed for scheme and client-IP handling.
+// Enable this only when the API is behind the managed Render ingress proxy. Render must
+// be the public ingress; ForwardLimit=1 uses the nearest forwarded hop and prevents a
+// client-supplied leftmost X-Forwarded-For value from being used for the limiter.
+var trustManagedIngress = string.Equals(
+    builder.Configuration["DFY_TRUST_MANAGED_INGRESS"],
+    "true",
+    StringComparison.OrdinalIgnoreCase);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    if (trustManagedIngress)
+    {
+        // Render's ingress IPs are managed and can change. Do not enable this flag for
+        // deployments directly exposed to clients or behind an untrusted proxy.
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+});
+
+// Per-IP throttling for public authentication endpoints. Request IP uses the forwarded
+// client address only when DFY_TRUST_MANAGED_INGRESS=true for the managed Render ingress.
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("auth", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 20,
+            Window = TimeSpan.FromMinutes(5),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
+
 // Database
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(configuredConnectionString));
@@ -159,6 +199,13 @@ builder.Services.AddScoped<IEscrowService, EscrowService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<IBankingService, BankingService>();
 builder.Services.AddScoped<IUserPolicyService, UserPolicyService>();
+builder.Services.AddSingleton<IAuthenticatorService, AuthenticatorService>();
+builder.Services.AddHttpClient<IIdentityVerificationService, SumsubIdentityVerificationService>();
+builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+builder.Services.AddHttpClient<IPasswordPolicyService, PwnedPasswordPolicyService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(4);
+});
 builder.Services.AddHostedService<EscrowReleaseService>();
 
 // SignalR
@@ -203,10 +250,28 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 }
 
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                var isActive = await db.Users.AsNoTracking()
-                    .AnyAsync(u => u.Id == userId && !u.IsArchived, context.HttpContext.RequestAborted);
-                if (!isActive)
+                var account = await db.Users.AsNoTracking()
+                    .Where(u => u.Id == userId)
+                    .Select(u => new { u.IsArchived, u.EmailVerified, u.Roles, u.SecurityStamp })
+                    .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+                if (account == null || account.IsArchived)
+                {
                     context.Fail("The account is archived or no longer active.");
+                    return;
+                }
+
+                var isAdmin = account.Roles?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(role => string.Equals(role.Trim(), "Admin", StringComparison.OrdinalIgnoreCase)) == true;
+                if (!isAdmin && !account.EmailVerified)
+                {
+                    context.Fail("Email verification is required.");
+                    return;
+                }
+
+                var tokenStamp = context.Principal?.FindFirst("security_stamp")?.Value ?? string.Empty;
+                var currentStamp = account.SecurityStamp ?? string.Empty;
+                if (!string.Equals(tokenStamp, currentStamp, StringComparison.Ordinal))
+                    context.Fail("The session has been revoked. Please sign in again.");
             }
         };
     });
@@ -328,7 +393,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+if (trustManagedIngress)
+    app.UseForwardedHeaders();
+
+app.UseRouting();
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();

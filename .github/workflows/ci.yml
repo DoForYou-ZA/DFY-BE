@@ -66,6 +66,10 @@ jobs:
           # GitHub's temporary PR merge ref before committing generated files.
           cp docs/openapi.json /tmp/dfy-openapi.json
           cp docs/openapi.d.ts /tmp/dfy-openapi.d.ts
+          # Exported OpenAPI files may differ from the committed snapshot. Restore
+          # the checked-out tree before switching branches; the generated copies
+          # are safely preserved in /tmp for the subsequent sync commit.
+          git restore --source=HEAD --worktree docs/openapi.json docs/openapi.d.ts
           git fetch origin "$TARGET_BRANCH"
           git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
           mkdir -p docs

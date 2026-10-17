@@ -195,46 +195,150 @@ public class PaginatedResponse<T>
 
 public class LoginRequest
 {
-    [Required, EmailAddress]
+    [Required, EmailAddress, StringLength(254)]
     public string Email { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(200)]
     public string Password { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string? SecondFactorCode { get; set; }
 }
 
 public class RegisterRequest
 {
-    [Required]
+    [Required, StringLength(50, MinimumLength = 1)]
     public string FirstName { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(50, MinimumLength = 1)]
     public string LastName { get; set; } = string.Empty;
-    
-    [Required, EmailAddress]
+
+    [Required, EmailAddress, StringLength(254)]
     public string Email { get; set; } = string.Empty;
-    
-    [Required]
+
+    // Passwords are deliberately not trimmed or normalized.
+    [Required, StringLength(72, MinimumLength = 12)]
     public string Password { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(20)]
     public string PhoneNumber { get; set; } = string.Empty;
-    
-    [Required]
+
+    [Required, StringLength(10)]
     public string UserType { get; set; } = string.Empty;
-    
-    public string? IdNumber { get; set; }
-    
-    [Required]
-    public string Address { get; set; } = string.Empty;
-    
-    public DateTime? DateOfBirth { get; set; }
-    
+
+    // Identity and address are collected later only when needed; neither is a signup requirement.
+
+    [StringLength(80)]
     public string? Username { get; set; }
+
+    [Required]
+    public bool TermsAccepted { get; set; }
+
+    [Required]
+    public bool PrivacyAccepted { get; set; }
+
+    [Required, StringLength(40)]
+    public string TermsVersion { get; set; } = string.Empty;
+
+    [Required, StringLength(40)]
+    public string PrivacyVersion { get; set; } = string.Empty;
+
+    public bool MarketingConsent { get; set; }
+}
+
+public class GoogleAuthRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+    [StringLength(20)]
+    public string? SecondFactorCode { get; set; }
+}
+
+public class GoogleLinkRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+}
+
+public class GoogleRegisterRequest
+{
+    [Required, StringLength(10000, MinimumLength = 20)]
+    public string IdToken { get; set; } = string.Empty;
+    [Required, StringLength(50, MinimumLength = 1)]
+    public string FirstName { get; set; } = string.Empty;
+    [Required, StringLength(50, MinimumLength = 1)]
+    public string LastName { get; set; } = string.Empty;
+    [Required, StringLength(20)]
+    public string PhoneNumber { get; set; } = string.Empty;
+    [Required, StringLength(10)]
+    public string UserType { get; set; } = string.Empty;
+    [Required]
+    public bool TermsAccepted { get; set; }
+    [Required]
+    public bool PrivacyAccepted { get; set; }
+    [Required, StringLength(40)]
+    public string TermsVersion { get; set; } = string.Empty;
+    [Required, StringLength(40)]
+    public string PrivacyVersion { get; set; } = string.Empty;
+    public bool MarketingConsent { get; set; }
+}
+
+public class TwoFactorSetupRequest
+{
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
+
+    [StringLength(8192)]
+    public string? GoogleIdToken { get; set; }
+}
+
+public class TwoFactorCodeRequest
+{
+    [Required, StringLength(20, MinimumLength = 6)]
+    public string Code { get; set; } = string.Empty;
+}
+
+public class DisableTwoFactorRequest
+{
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
+    [Required, StringLength(20, MinimumLength = 6)]
+    public string Code { get; set; } = string.Empty;
+}
+
+public class VerifyEmailRequest
+{
+    [Required, StringLength(200)]
+    public string Token { get; set; } = string.Empty;
+}
+
+public class ResendVerificationRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class ForgotPasswordRequest
+{
+    [Required, EmailAddress, StringLength(254)]
+    public string Email { get; set; } = string.Empty;
+}
+
+public class AccountResetPasswordRequest
+{
+    [Required, StringLength(200)]
+    public string Token { get; set; } = string.Empty;
+
+    [Required, StringLength(72, MinimumLength = 12)]
+    public string NewPassword { get; set; } = string.Empty;
 }
 
 public class AuthResponse
 {
     public bool Success { get; set; }
+    public bool RequiresTwoFactor { get; set; }
+    public bool RequiresAccountSetup { get; set; }
+    public bool RequiresAccountLink { get; set; }
     public string? Token { get; set; }
     public UserDto? User { get; set; }
     public string? Message { get; set; }
@@ -263,6 +367,12 @@ public class UserDto
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
     public bool IsVerified { get; set; }
+    public bool HasPasswordLogin { get; set; }
+    public bool EmailVerified { get; set; }
+    public bool PhoneVerified { get; set; }
+    public string IdentityVerificationStatus { get; set; } = "not_started";
+    public bool AuthenticatorTwoFactorEnabled { get; set; }
+    public bool HasGoogleLogin { get; set; }
 }
 
 
@@ -403,11 +513,25 @@ public class ValidateIdRequest
     public string? IdNumber { get; set; }
 }
 
+public class ReauthenticateRequest
+{
+    [StringLength(72)]
+    public string? CurrentPassword { get; set; }
+
+    [StringLength(10000, MinimumLength = 20)]
+    public string? GoogleIdToken { get; set; }
+
+    [StringLength(20, MinimumLength = 6)]
+    public string? SecondFactorCode { get; set; }
+}
+
 public class ChangePasswordRequest
 {
-    [Required]
+    [Required, StringLength(72)]
     public string CurrentPassword { get; set; } = string.Empty;
-    [Required, MinLength(6)]
+
+    // Keep OpenAPI/client validation aligned with the controller's BCrypt-safe policy.
+    [Required, StringLength(72, MinimumLength = 12)]
     public string NewPassword { get; set; } = string.Empty;
 }
 

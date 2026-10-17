@@ -26,17 +26,31 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs { get; set; }
     public DbSet<SupportTicket> SupportTickets { get; set; }
     public DbSet<Testimonial> Testimonials { get; set; }
+    public DbSet<UserConsentEvent> UserConsentEvents { get; set; } = null!;
+    public DbSet<IdentityVerificationEvent> IdentityVerificationEvents { get; set; } = null!;
 
     public override int SaveChanges()
     {
+        NormalizeUserEmails();
         NormalizeUtcDates();
         return base.SaveChanges();
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        NormalizeUserEmails();
         NormalizeUtcDates();
         return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void NormalizeUserEmails()
+    {
+        foreach (var entry in ChangeTracker.Entries<User>()
+                     .Where(entry => entry.State is EntityState.Added or EntityState.Modified))
+        {
+            entry.Entity.Email = entry.Entity.Email.Trim();
+            entry.Entity.NormalizedEmail = entry.Entity.Email.ToLowerInvariant();
+        }
     }
 
     private void NormalizeUtcDates()
@@ -53,6 +67,41 @@ public class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.NormalizedEmail)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_NormalizedEmail");
+        modelBuilder.Entity<User>()
+            .HasIndex(user => user.GoogleSubject)
+            .IsUnique()
+            .HasDatabaseName("IX_Users_GoogleSubject");
+
+        modelBuilder.Entity<UserConsentEvent>()
+            .HasIndex(e => new { e.UserId, e.ConsentType, e.RecordedAt })
+            .HasDatabaseName("IX_UserConsentEvents_UserId_ConsentType_RecordedAt");
+
+        modelBuilder.Entity<UserConsentEvent>()
+            .HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
+            .HasIndex(e => new { e.Provider, e.EventHash })
+            .IsUnique()
+            .HasDatabaseName("IX_IdentityVerificationEvents_Provider_EventHash");
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
+            .HasIndex(e => new { e.UserId, e.ReceivedAt })
+            .HasDatabaseName("IX_IdentityVerificationEvents_UserId_ReceivedAt");
+
+        modelBuilder.Entity<IdentityVerificationEvent>()
+            .HasOne(e => e.User)
+            .WithMany()
+            .HasForeignKey(e => e.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
         modelBuilder.Entity<Models.Task>()
             .HasQueryFilter(t => !t.IsDeleted);
         modelBuilder.Entity<Models.Task>()

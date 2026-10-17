@@ -122,9 +122,14 @@ public class PaymentController : ControllerBase
         var reference = GetString(data, "reference");
         var amountMinor = GetDecimal(data, "amount");
         var transactionId = GetString(data, "id");
+        var currency = GetString(data, "currency");
 
-        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
+        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack charge event with missing reference/amount or unsupported currency.");
             return BadRequest();
+        }
 
         var paymentAttempt = await _context.PaymentAttempts
             .FirstOrDefaultAsync(p => p.Provider == "Paystack" && p.Reference == reference);
@@ -250,7 +255,10 @@ public class PaymentController : ControllerBase
         }
 
         // Idempotent task activation.
-        if (task.PaymentStatus != "EscrowHeld" || task.TaskStatus == "PendingPayment")
+        // A verified charge may only advance a task that is still awaiting its
+        // first payment. Replayed success events must not resurrect cancelled
+        // or refunded tasks.
+        if (task.TaskStatus == "PendingPayment")
         {
             task.PaymentStatus = "EscrowHeld";
             task.TaskStatus = "Posted";
@@ -269,9 +277,12 @@ public class PaymentController : ControllerBase
 
         var refundId = GetString(data, "id");
         var transaction = data.TryGetProperty("transaction", out var transactionElement)
-            ? transactionElement.ToString()
+            ? transactionElement.ValueKind == JsonValueKind.Object
+                ? GetString(transactionElement, "id")
+                : transactionElement.ToString()
             : null;
         var amountMinor = GetDecimal(data, "amount");
+        var currency = GetString(data, "currency");
         var providerStatus = GetString(data, "status");
 
         if (string.IsNullOrWhiteSpace(refundId))
@@ -287,8 +298,31 @@ public class PaymentController : ControllerBase
             return Ok();
         }
 
+        if (!amountMinor.HasValue ||
+            amountMinor.Value / 100m != refund.Amount ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack refund event {RefundId} because amount/currency did not match the DFY refund.", refundId);
+            return BadRequest();
+        }
+
+        if (!string.IsNullOrWhiteSpace(transaction) &&
+            !string.Equals(transaction, refund.TransactionId, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("Rejected Paystack refund event {RefundId} because the transaction reference did not match.", refundId);
+            return BadRequest();
+        }
+
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == refund.TaskId);
         if (task == null)
+            return Ok();
+
+        // Provider events may be retried or arrive out of order. A completed
+        // refund is terminal for webhook processing, and stale pending/processing
+        // events must not undo a failure that is already awaiting reconciliation.
+        if (string.Equals(refund.Status, "Complete", StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(refund.Status, "Failed", StringComparison.OrdinalIgnoreCase) &&
+             eventName is "refund.failed" or "refund.pending" or "refund.processing"))
             return Ok();
 
         refund.LastReconciledAt = DateTime.UtcNow;
@@ -297,7 +331,7 @@ public class PaymentController : ControllerBase
             string.Equals(providerStatus, "processed", StringComparison.OrdinalIgnoreCase))
         {
             refund.Status = "Complete";
-            refund.CompletedAt = DateTime.UtcNow;
+            refund.CompletedAt ??= DateTime.UtcNow;
 
             task.PaymentStatus = "Refunded";
             task.TaskStatus = "Cancelled";
@@ -366,9 +400,14 @@ public class PaymentController : ControllerBase
 
         var reference = GetString(data, "reference");
         var amountMinor = GetDecimal(data, "amount");
+        var currency = GetString(data, "currency");
 
-        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
+        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack transfer event with missing reference/amount or unsupported currency.");
             return BadRequest();
+        }
 
         var normalizedReference = NormalizeProviderReference(reference);
 
@@ -391,6 +430,14 @@ public class PaymentController : ControllerBase
                 reference, payout.Amount, amountMinor.Value / 100m);
             return BadRequest();
         }
+
+        // Do not let a delayed failure or success replay undo a completed payout,
+        // and do not resurrect a transfer that Paystack has reported as returned.
+        // A later signed reversal is allowed to move Completed to Returned.
+        if (string.Equals(payout.Status, "Returned", StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(payout.Status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+             eventName is "transfer.success" or "transfer.failed"))
+            return Ok();
 
         payout.ProviderReference = GetString(data, "transfer_code") ?? payout.ProviderReference;
         payout.UpdatedAt = DateTime.UtcNow;
