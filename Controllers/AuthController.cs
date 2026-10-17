@@ -507,6 +507,7 @@ public class AuthController : ControllerBase
             await _context.SaveChangesAsync();
         }
 
+        await SendPasswordChangedNoticeBestEffortAsync(user.Id, user.Email);
         return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password reset successfully. Please sign in with your new password." });
     }
 
@@ -1162,7 +1163,8 @@ public class AuthController : ControllerBase
         user.SecurityStamp = CreateSecureToken();
         await _context.SaveChangesAsync();
 
-        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password changed successfully" });
+        await SendPasswordChangedNoticeBestEffortAsync(user.Id, user.Email);
+        return Ok(new ApiResponse<bool> { Success = true, Data = true, Message = "Password changed successfully. Other sessions have been revoked; sign in again on your devices." });
     }
 
     [EnableRateLimiting("auth")]
@@ -1507,16 +1509,35 @@ public class AuthController : ControllerBase
 
     private System.Threading.Tasks.Task SendVerificationEmailAsync(string email, string token, CancellationToken cancellationToken)
     {
-        var link = $"{GetPublicFrontendUrl()}/verify-email?token={Uri.EscapeDataString(token)}";
+        // Keep one-time tokens in the URL fragment: browsers do not send fragments in HTTP requests,
+        // so the token is not exposed in CDN/proxy access logs or Referer headers.
+        var link = $"{GetPublicFrontendUrl()}/verify-email#token={Uri.EscapeDataString(token)}";
         var body = $"Welcome to DoForYou.\n\nVerify your email address using this link (valid for 24 hours):\n{link}\n\nIf you did not create this account, you can ignore this email.";
         return _emailSender.SendAsync(email, "Verify your DoForYou email", body, cancellationToken);
     }
 
     private System.Threading.Tasks.Task SendPasswordResetEmailAsync(string email, string token, CancellationToken cancellationToken)
     {
-        var link = $"{GetPublicFrontendUrl()}/reset-password?token={Uri.EscapeDataString(token)}";
+        // Keep one-time tokens in the URL fragment: browsers do not send fragments in HTTP requests,
+        // so the token is not exposed in CDN/proxy access logs or Referer headers.
+        var link = $"{GetPublicFrontendUrl()}/reset-password#token={Uri.EscapeDataString(token)}";
         var body = $"A password reset was requested for your DoForYou account.\n\nUse this link within 30 minutes to choose a new password:\n{link}\n\nIf you did not request this, you can ignore this email. Your password will not change.";
         return _emailSender.SendAsync(email, "Reset your DoForYou password", body, cancellationToken);
+    }
+
+    private async Task SendPasswordChangedNoticeBestEffortAsync(int userId, string email)
+    {
+        try
+        {
+            var body = "Your DoForYou password was changed successfully.\n\nIf you made this change, no further action is needed. If you did not change your password, sign in using your approved recovery method and contact DoForYou support immediately.\n\nFor your security, existing sessions were revoked.";
+            await _emailSender.SendAsync(email, "Your DoForYou password was changed", body, CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            // Password changes must remain successful if the mail provider is unavailable.
+            // Log only the internal user id; never log addresses, tokens or message bodies.
+            _logger.LogWarning(ex, "Password-change security notification could not be sent for user {UserId}", userId);
+        }
     }
 
     private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(
