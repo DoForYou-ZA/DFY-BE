@@ -1,6 +1,7 @@
 // Full DFY staging scenario validation runs alongside the API unit scenarios.
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text;
 using DoForYou.API.Controllers;
 using DoForYou.API.Data;
 using DoForYou.API.DTOs;
@@ -648,6 +649,164 @@ public class ScenarioTests
 
         Assert.False(response.Success);
         Assert.Equal("TASK_ALREADY_CLAIMED", response.Error);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Late_payout_failure_does_not_downgrade_completed_transfer_and_return_is_terminal()
+    {
+        using var context = CreateContext(nameof(Late_payout_failure_does_not_downgrade_completed_transfer_and_return_is_terminal));
+        var creator = CreateUser(1, "creator", true, "webhook-payout-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "webhook-payout-runner@test.com");
+        var bank = CreateVerifiedBankAccount(runner.Id);
+        context.Users.AddRange(creator, runner);
+        context.BankAccounts.Add(bank);
+        var task = new TaskEntity
+        {
+            Id = 8801,
+            TaskId = "DFY-WEBHOOK-PAYOUT-1",
+            TaskDescription = "Webhook payout ordering",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            CommissionAmount = 30m,
+            PayoutAmount = 170m,
+            PaymentStatus = "EscrowReleased",
+            EscrowStatus = "released",
+            PayoutStatus = "Processing",
+            TaskStatus = "PayoutPending",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var payout = new Payout
+        {
+            TaskId = task.Id,
+            RunnerId = runner.Id,
+            BankAccountId = bank.Id,
+            Amount = 170m,
+            Provider = "Paystack",
+            MerchantReference = "DFY-PAYOUT-WEBHOOK-1",
+            Status = "Processing",
+            CreatedAt = DateTime.UtcNow,
+            Task = task,
+            Runner = runner,
+            BankAccount = bank
+        };
+        context.Tasks.Add(task);
+        context.Payouts.Add(payout);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+
+        var success = await InvokeWebhook(controller,
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(success);
+        Assert.Equal("Completed", payout.Status);
+        Assert.Equal("RunnerPaid", task.TaskStatus);
+
+        var delayedFailure = await InvokeWebhook(controller,
+            """{"event":"transfer.failed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(delayedFailure);
+        Assert.Equal("Completed", payout.Status);
+        Assert.Equal("RunnerPaid", task.TaskStatus);
+
+        var returned = await InvokeWebhook(controller,
+            """{"event":"transfer.reversed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(returned);
+        Assert.Equal("Returned", payout.Status);
+        Assert.Equal("PayoutFailed", task.TaskStatus);
+
+        var lateSuccess = await InvokeWebhook(controller,
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+        Assert.IsType<OkResult>(lateSuccess);
+        Assert.Equal("Returned", payout.Status);
+        Assert.Equal("PayoutFailed", task.TaskStatus);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Late_refund_failure_does_not_reverse_completed_refund()
+    {
+        using var context = CreateContext(nameof(Late_refund_failure_does_not_reverse_completed_refund));
+        var creator = CreateUser(1, "creator", true, "webhook-refund-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "webhook-refund-runner@test.com");
+        context.Users.AddRange(creator, runner);
+        var task = new TaskEntity
+        {
+            Id = 8802,
+            TaskId = "DFY-WEBHOOK-REFUND-1",
+            TaskDescription = "Webhook refund ordering",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(1),
+            Budget = 200m,
+            PaymentStatus = "DisputePending",
+            EscrowStatus = "disputed",
+            TaskStatus = "Completed",
+            CreatedByUserId = creator.Id,
+            AcceptedByUserId = runner.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var refund = new Refund
+        {
+            TaskId = task.Id,
+            RefundId = "REF-WEBHOOK-1",
+            TransactionId = "TX-WEBHOOK-1",
+            Amount = 200m,
+            Reason = "Test refund state ordering",
+            Provider = "Paystack",
+            Status = "Processing",
+            CreatedAt = DateTime.UtcNow,
+            Task = task
+        };
+        context.Tasks.Add(task);
+        context.Refunds.Add(refund);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+
+        var processed = await InvokeWebhook(controller,
+            """{"event":"refund.processed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"status":"processed"}}""");
+        Assert.IsType<OkResult>(processed);
+        Assert.Equal("Complete", refund.Status);
+        Assert.Equal("Refunded", task.PaymentStatus);
+        Assert.Equal("Cancelled", task.TaskStatus);
+
+        var delayedFailure = await InvokeWebhook(controller,
+            """{"event":"refund.failed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"status":"failed"}}""");
+        Assert.IsType<OkResult>(delayedFailure);
+        Assert.Equal("Complete", refund.Status);
+        Assert.Equal("Refunded", task.PaymentStatus);
+        Assert.Equal("Cancelled", task.TaskStatus);
+    }
+
+    private static PaymentController CreatePaymentController(AppDbContext context)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["FrontendUrl"] = "https://dfy-fe-staging.onrender.com",
+                ["BackendUrl"] = "https://dfy-be-staging.onrender.com"
+            })
+            .Build();
+        return new PaymentController(
+            context,
+            new FakePaystackPaymentProvider(),
+            configuration,
+            NullLogger<PaymentController>.Instance,
+            new NoOpNotificationService());
+    }
+
+    private static async System.Threading.Tasks.Task<IActionResult> InvokeWebhook(PaymentController controller, string payload)
+    {
+        var body = new MemoryStream(Encoding.UTF8.GetBytes(payload));
+        var http = new DefaultHttpContext();
+        http.Request.Body = body;
+        http.Request.ContentLength = body.Length;
+        http.Request.ContentType = "application/json";
+        http.Request.Headers["x-paystack-signature"] = "test-signature";
+        controller.ControllerContext = new ControllerContext { HttpContext = http };
+        return await controller.Webhook();
     }
 
     [Fact]
