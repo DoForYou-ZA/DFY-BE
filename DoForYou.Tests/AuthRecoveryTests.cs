@@ -68,7 +68,7 @@ public class AuthRecoveryTests
         Assert.NotNull(user.EmailVerificationSendWindowStartAt);
         var emailBody = Assert.Single(emailSender.Messages).Body;
         var tokenLine = emailBody.Split('\n').Single(line => line.Contains("#token=", StringComparison.Ordinal));
-        var rawToken = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
+        var rawToken = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("#token=", StringComparison.Ordinal) + 7)..]);
         Assert.NotEqual(rawToken, user.EmailVerificationToken);
         Assert.Contains("/verify-email#token=", emailBody);
         Assert.DoesNotContain("/verify-email?token=", emailBody);
@@ -210,7 +210,7 @@ public class AuthRecoveryTests
 
         var emailBody = Assert.Single(emailSender.Messages).Body;
         var tokenLine = emailBody.Split('\n').Single(line => line.Contains("#token=", StringComparison.Ordinal));
-        var token = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
+        var token = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("#token=", StringComparison.Ordinal) + 7)..]);
         Assert.NotEqual(token, user.PasswordResetTokenHash);
 
         var previousStamp = user.SecurityStamp;
