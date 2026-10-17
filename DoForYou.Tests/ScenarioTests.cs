@@ -296,6 +296,69 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Payment_webhook_replay_is_idempotent_and_currency_mismatch_has_no_effect()
+    {
+        using var context = CreateContext(nameof(Payment_webhook_replay_is_idempotent_and_currency_mismatch_has_no_effect));
+        var creator = CreateUser(1, "creator", true, "payment-webhook-creator@test.com");
+        context.Users.Add(creator);
+        const string reference = "DFY-CHARGE-WEBHOOK-REPLAY";
+        var task = new TaskEntity
+        {
+            Id = 8810,
+            TaskId = "DFY-WEBHOOK-CHARGE-1",
+            TaskDescription = "Charge replay and currency validation",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 500m,
+            PaymentReference = reference,
+            PaymentStatus = "Pending",
+            EscrowStatus = "pending",
+            TaskStatus = "PendingPayment",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        var attempt = new PaymentAttempt
+        {
+            TaskId = task.Id,
+            Reference = reference,
+            Provider = "Paystack",
+            Amount = task.Budget,
+            Status = "Pending",
+            CreatedAt = DateTime.UtcNow,
+            Task = task
+        };
+        context.Tasks.Add(task);
+        context.PaymentAttempts.Add(attempt);
+        await context.SaveChangesAsync();
+        var controller = CreatePaymentController(context);
+        const string validEvent = """{"event":"charge.success","data":{"id":"TX-WEBHOOK-1","reference":"DFY-CHARGE-WEBHOOK-REPLAY","amount":50000,"currency":"ZAR","status":"success"}}""";
+
+        Assert.IsType<OkResult>(await InvokeWebhook(controller, validEvent));
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("EscrowHeld", task.PaymentStatus);
+        Assert.Equal("Completed", attempt.Status);
+        Assert.Single(await context.Payments.ToListAsync());
+        Assert.Single(await context.AuditLogs.Where(a => a.Action == "PaystackPaymentVerified").ToListAsync());
+
+        Assert.IsType<OkResult>(await InvokeWebhook(controller, validEvent));
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("Completed", attempt.Status);
+        Assert.Single(await context.PaymentAttempts.ToListAsync());
+        Assert.Single(await context.Payments.ToListAsync());
+        Assert.Single(await context.AuditLogs.Where(a => a.Action == "PaystackPaymentVerified").ToListAsync());
+
+        var invalidCurrency = """{"event":"charge.success","data":{"id":"TX-WEBHOOK-2","reference":"DFY-CHARGE-WEBHOOK-REPLAY","amount":50000,"currency":"USD","status":"success"}}""";
+        var invalidResult = await InvokeWebhook(controller, invalidCurrency);
+        Assert.IsType<BadRequestResult>(invalidResult);
+        Assert.Equal("Posted", task.TaskStatus);
+        Assert.Equal("EscrowHeld", task.PaymentStatus);
+        Assert.Single(await context.PaymentAttempts.ToListAsync());
+        Assert.Single(await context.Payments.ToListAsync());
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id()
     {
         using var context = CreateContext(nameof(Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id));
