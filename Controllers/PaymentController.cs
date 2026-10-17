@@ -122,9 +122,14 @@ public class PaymentController : ControllerBase
         var reference = GetString(data, "reference");
         var amountMinor = GetDecimal(data, "amount");
         var transactionId = GetString(data, "id");
+        var currency = GetString(data, "currency");
 
-        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
+        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack charge event with missing reference/amount or unsupported currency.");
             return BadRequest();
+        }
 
         var paymentAttempt = await _context.PaymentAttempts
             .FirstOrDefaultAsync(p => p.Provider == "Paystack" && p.Reference == reference);
@@ -272,9 +277,12 @@ public class PaymentController : ControllerBase
 
         var refundId = GetString(data, "id");
         var transaction = data.TryGetProperty("transaction", out var transactionElement)
-            ? transactionElement.ToString()
+            ? transactionElement.ValueKind == JsonValueKind.Object
+                ? GetString(transactionElement, "id")
+                : transactionElement.ToString()
             : null;
         var amountMinor = GetDecimal(data, "amount");
+        var currency = GetString(data, "currency");
         var providerStatus = GetString(data, "status");
 
         if (string.IsNullOrWhiteSpace(refundId))
@@ -288,6 +296,21 @@ public class PaymentController : ControllerBase
         {
             _logger.LogWarning("Paystack refund event {RefundId} has no matching DFY refund.", refundId);
             return Ok();
+        }
+
+        if (!amountMinor.HasValue ||
+            amountMinor.Value / 100m != refund.Amount ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack refund event {RefundId} because amount/currency did not match the DFY refund.", refundId);
+            return BadRequest();
+        }
+
+        if (!string.IsNullOrWhiteSpace(transaction) &&
+            !string.Equals(transaction, refund.TransactionId, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("Rejected Paystack refund event {RefundId} because the transaction reference did not match.", refundId);
+            return BadRequest();
         }
 
         var task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == refund.TaskId);
@@ -377,9 +400,14 @@ public class PaymentController : ControllerBase
 
         var reference = GetString(data, "reference");
         var amountMinor = GetDecimal(data, "amount");
+        var currency = GetString(data, "currency");
 
-        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue)
+        if (string.IsNullOrWhiteSpace(reference) || !amountMinor.HasValue ||
+            !string.Equals(currency, "ZAR", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Rejected Paystack transfer event with missing reference/amount or unsupported currency.");
             return BadRequest();
+        }
 
         var normalizedReference = NormalizeProviderReference(reference);
 
