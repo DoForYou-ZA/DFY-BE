@@ -700,25 +700,25 @@ public class ScenarioTests
         var controller = CreatePaymentController(context);
 
         var success = await InvokeWebhook(controller,
-            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
         Assert.IsType<OkResult>(success);
         Assert.Equal("Completed", payout.Status);
         Assert.Equal("RunnerPaid", task.TaskStatus);
 
         var delayedFailure = await InvokeWebhook(controller,
-            """{"event":"transfer.failed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+            """{"event":"transfer.failed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
         Assert.IsType<OkResult>(delayedFailure);
         Assert.Equal("Completed", payout.Status);
         Assert.Equal("RunnerPaid", task.TaskStatus);
 
         var returned = await InvokeWebhook(controller,
-            """{"event":"transfer.reversed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+            """{"event":"transfer.reversed","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
         Assert.IsType<OkResult>(returned);
         Assert.Equal("Returned", payout.Status);
         Assert.Equal("PayoutFailed", task.TaskStatus);
 
         var lateSuccess = await InvokeWebhook(controller,
-            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"transfer_code":"TRF_WEBHOOK_1"}}""");
+            """{"event":"transfer.success","data":{"reference":"DFY-PAYOUT-WEBHOOK-1","amount":17000,"currency":"ZAR","transfer_code":"TRF_WEBHOOK_1"}}""");
         Assert.IsType<OkResult>(lateSuccess);
         Assert.Equal("Returned", payout.Status);
         Assert.Equal("PayoutFailed", task.TaskStatus);
@@ -766,14 +766,14 @@ public class ScenarioTests
         var controller = CreatePaymentController(context);
 
         var processed = await InvokeWebhook(controller,
-            """{"event":"refund.processed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"status":"processed"}}""");
+            """{"event":"refund.processed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"currency":"ZAR","status":"processed"}}""");
         Assert.IsType<OkResult>(processed);
         Assert.Equal("Complete", refund.Status);
         Assert.Equal("Refunded", task.PaymentStatus);
         Assert.Equal("Cancelled", task.TaskStatus);
 
         var delayedFailure = await InvokeWebhook(controller,
-            """{"event":"refund.failed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"status":"failed"}}""");
+            """{"event":"refund.failed","data":{"id":"REF-WEBHOOK-1","transaction":"TX-WEBHOOK-1","amount":20000,"currency":"ZAR","status":"failed"}}""");
         Assert.IsType<OkResult>(delayedFailure);
         Assert.Equal("Complete", refund.Status);
         Assert.Equal("Refunded", task.PaymentStatus);
