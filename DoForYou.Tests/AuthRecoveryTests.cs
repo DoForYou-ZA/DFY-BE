@@ -67,10 +67,11 @@ public class AuthRecoveryTests
         Assert.Equal(1, user.EmailVerificationSendCount);
         Assert.NotNull(user.EmailVerificationSendWindowStartAt);
         var emailBody = Assert.Single(emailSender.Messages).Body;
-        var tokenLine = emailBody.Split('\n').Single(line => line.Contains("?token=", StringComparison.Ordinal));
+        var tokenLine = emailBody.Split('\n').Single(line => line.Contains("#token=", StringComparison.Ordinal));
         var rawToken = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
         Assert.NotEqual(rawToken, user.EmailVerificationToken);
-        Assert.Contains("verify-email", emailBody);
+        Assert.Contains("/verify-email#token=", emailBody);
+        Assert.DoesNotContain("/verify-email?token=", emailBody);
     }
 
     [Fact]
@@ -208,7 +209,7 @@ public class AuthRecoveryTests
         Assert.Single(emailSender.Messages);
 
         var emailBody = Assert.Single(emailSender.Messages).Body;
-        var tokenLine = emailBody.Split('\n').Single(line => line.Contains("?token=", StringComparison.Ordinal));
+        var tokenLine = emailBody.Split('\n').Single(line => line.Contains("#token=", StringComparison.Ordinal));
         var token = Uri.UnescapeDataString(tokenLine[(tokenLine.IndexOf("?token=", StringComparison.Ordinal) + 7)..]);
         Assert.NotEqual(token, user.PasswordResetTokenHash);
 
@@ -228,6 +229,11 @@ public class AuthRecoveryTests
         Assert.NotEqual(previousStamp, user.SecurityStamp);
         Assert.Null(user.PasswordResetTokenHash);
         Assert.Null(user.PasswordResetExpiry);
+        Assert.Equal(2, emailSender.Messages.Count);
+        Assert.Contains(emailSender.Messages, item =>
+            item.Subject == "Your DoForYou password was changed" &&
+            item.Recipient == user.Email &&
+            item.Body.Contains("existing sessions were revoked", StringComparison.OrdinalIgnoreCase));
 
         var replayResult = await controller.ResetPassword(new AccountResetPasswordRequest
         {
@@ -863,6 +869,56 @@ public class AuthRecoveryTests
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, unavailable.StatusCode);
         Assert.True(BCrypt.Net.BCrypt.Verify(oldPassword, user.PasswordHash));
         Assert.Equal("original-change-stamp", user.SecurityStamp);
+    }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Successful_password_change_revokes_sessions_and_sends_security_notice()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var context = new AppDbContext(options);
+        const string oldPassword = "A-valid-unique-passphrase-2026";
+        const string newPassword = "A-new-valid-passphrase-2026";
+        var user = new User
+        {
+            Id = 89,
+            FirstName = "Change",
+            LastName = "Password",
+            Email = "password-change@example.com",
+            NormalizedEmail = "password-change@example.com",
+            PhoneNumber = "0821234567",
+            UserType = "creator",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword(oldPassword),
+            PasswordLoginEnabled = true,
+            EmailVerified = true,
+            SecurityStamp = "original-password-change-stamp"
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var emailSender = new RecordingEmailSender();
+        var controller = CreateController(
+            context,
+            emailSender,
+            user.Id,
+            new FixedPasswordPolicyService(PasswordPolicyStatus.Accepted));
+        var result = await controller.ChangePassword(new ChangePasswordRequest
+        {
+            CurrentPassword = oldPassword,
+            NewPassword = newPassword
+        });
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<bool>>(ok.Value);
+        Assert.True(response.Success);
+        Assert.False(BCrypt.Net.BCrypt.Verify(oldPassword, user.PasswordHash));
+        Assert.True(BCrypt.Net.BCrypt.Verify(newPassword, user.PasswordHash));
+        Assert.NotEqual("original-password-change-stamp", user.SecurityStamp);
+        var notice = Assert.Single(emailSender.Messages);
+        Assert.Equal(user.Email, notice.Recipient);
+        Assert.Equal("Your DoForYou password was changed", notice.Subject);
+        Assert.Contains("existing sessions were revoked", notice.Body, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GenerateTotpCode(string base32Secret, DateTimeOffset now)
