@@ -287,6 +287,9 @@ public class TwoFactorSetupRequest
 {
     [StringLength(72)]
     public string? CurrentPassword { get; set; }
+
+    [StringLength(8192)]
+    public string? GoogleIdToken { get; set; }
 }
 
 public class TwoFactorCodeRequest
