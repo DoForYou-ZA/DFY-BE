@@ -295,6 +295,43 @@ public class ScenarioTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id()
+    {
+        using var context = CreateContext(nameof(Task_detail_resolves_legacy_numeric_id_but_returns_canonical_public_id));
+        var creator = CreateUser(1, "creator", true, "numeric-link-creator@test.com");
+        var runner = CreateUser(2, "runner", true, "numeric-link-runner@test.com");
+        context.Users.AddRange(creator, runner);
+        var task = new TaskEntity
+        {
+            Id = 8123,
+            TaskId = "DFY-CANONICAL-8123",
+            TaskDescription = "Notification legacy ID test",
+            Category = "Other",
+            Area = "Pretoria",
+            DateNeeded = DateTime.UtcNow.AddDays(2),
+            Budget = 200m,
+            Priority = "Standard",
+            PaymentStatus = "EscrowHeld",
+            EscrowStatus = "held",
+            TaskStatus = "Posted",
+            CreatedByUserId = creator.Id,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        context.Tasks.Add(task);
+        await context.SaveChangesAsync();
+
+        var controller = CreateTasksController(context, creator.Id);
+        var result = await controller.GetTask("8123");
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        var response = Assert.IsType<ApiResponse<object>>(ok.Value);
+        Assert.True(response.Success);
+        using var json = JsonDocument.Parse(JsonSerializer.Serialize(response.Data));
+        Assert.Equal("DFY-CANONICAL-8123", json.RootElement.GetProperty("taskId").GetString());
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task RunnerCanClaimPostedTask()
     {
         using var context = CreateContext(nameof(RunnerCanClaimPostedTask));
