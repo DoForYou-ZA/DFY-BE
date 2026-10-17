@@ -892,9 +892,19 @@ public class AuthController : ControllerBase
                 !BCrypt.Net.BCrypt.Verify(request.CurrentPassword, user.PasswordHash))
                 return Unauthorized(new ApiResponse<object> { Success = false, Message = "Confirm your current password to set up an authenticator." });
         }
-        else if (!user.LastLoginAt.HasValue || user.LastLoginAt.Value < DateTime.UtcNow.AddMinutes(-10))
+        else
         {
-            return Unauthorized(new ApiResponse<object> { Success = false, Message = "Sign in again before setting up an authenticator." });
+            // A recent LastLoginAt value is not proof of possession of the linked
+            // Google account on this request. Require a freshly validated Google
+            // assertion rather than relying on a timestamp attached to a session.
+            if (string.IsNullOrWhiteSpace(request.GoogleIdToken))
+                return Unauthorized(new ApiResponse<object> { Success = false, Message = "Confirm your linked Google account before setting up an authenticator." });
+
+            var googlePayload = await ValidateGoogleIdTokenAsync(request.GoogleIdToken);
+            if (googlePayload == null || googlePayload.EmailVerified != true ||
+                !string.Equals(googlePayload.Subject, user.GoogleSubject, StringComparison.Ordinal) ||
+                !string.Equals(googlePayload.Email?.Trim(), user.Email, StringComparison.OrdinalIgnoreCase))
+                return Unauthorized(new ApiResponse<object> { Success = false, Message = "Google reauthentication failed. Confirm the linked Google account and try again." });
         }
 
         var secret = _authenticatorService.CreateSecret();
