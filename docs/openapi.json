@@ -7577,6 +7577,12 @@
             "minLength": 0,
             "type": "string",
             "nullable": true
+          },
+          "googleIdToken": {
+            "maxLength": 8192,
+            "minLength": 0,
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

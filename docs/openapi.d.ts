@@ -6287,6 +6287,7 @@ export interface components {
         };
         TwoFactorSetupRequest: {
             currentPassword?: string | null;
+            googleIdToken?: string | null;
         };
         UpdateProfileRequest: {
             firstName?: string | null;
