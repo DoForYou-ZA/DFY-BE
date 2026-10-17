@@ -542,7 +542,14 @@ public class TasksController : ControllerBase
         var currentUserId = GetCurrentUserId();
         if (currentUserId == null) return Unauthorized();
 
-        var task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser).FirstOrDefaultAsync(t => t.TaskId == taskId);
+        // Public TaskId is the canonical identifier. Accept a numeric database id
+        // only as a legacy notification/deep-link fallback, and always return the
+        // canonical TaskId in the response.
+        var task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser)
+            .FirstOrDefaultAsync(t => t.TaskId == taskId);
+        if (task == null && int.TryParse(taskId, out var numericTaskId))
+            task = await _context.Tasks.Include(t => t.CreatedByUser).Include(t => t.AcceptedByUser)
+                .FirstOrDefaultAsync(t => t.Id == numericTaskId);
         if (task == null) return NotFound(new ApiResponse<object> { Success = false, Message = "Task not found" });
 
         // Detailed task views may contain participant contact details. Only the creator,
