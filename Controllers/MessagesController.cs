@@ -84,12 +84,7 @@ public class MessagesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        // Try to find task by string TaskId first, then by numeric Id
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
-        if (task == null && int.TryParse(taskId, out var numericId))
-        {
-            task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == numericId);
-        }
+        var task = await FindTaskByIdentifierAsync(taskId);
         
         if (task == null || (task.CreatedByUserId != userId && task.AcceptedByUserId != userId))
             return Ok(new ApiResponse<bool> { Success = false, Message = "Access denied" });
@@ -128,7 +123,7 @@ public class MessagesController : ControllerBase
         var messageDto = new
         {
             id = message.Id,
-            taskId = taskId,
+            taskId = task.TaskId,
             senderId = message.SenderId,
             senderName = senderName,
             content = message.Content,
@@ -136,7 +131,7 @@ public class MessagesController : ControllerBase
             isRead = message.IsRead
         };
         
-        await _hubContext.Clients.Group($"task-{taskId}").SendAsync("ReceiveMessage", messageDto);
+        await _hubContext.Clients.Group($"task-{task.TaskId}").SendAsync("ReceiveMessage", messageDto);
 
         return Ok(new ApiResponse<bool>
         {
@@ -154,12 +149,7 @@ public class MessagesController : ControllerBase
 
         var isAdmin = User.IsInRole("Admin");
 
-        // Try to find task by string TaskId first, then by numeric Id
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
-        if (task == null && int.TryParse(taskId, out var numericId))
-        {
-            task = await _context.Tasks.FirstOrDefaultAsync(t => t.Id == numericId);
-        }
+        var task = await FindTaskByIdentifierAsync(taskId);
         
         if (task == null || (!isAdmin && task.CreatedByUserId != userId && task.AcceptedByUserId != userId))
             return Ok(new ApiResponse<List<object>> { Success = false, Message = "Access denied" });
@@ -197,7 +187,7 @@ public class MessagesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        var task = await FindTaskByIdentifierAsync(taskId);
         if (task == null || (task.CreatedByUserId != userId && task.AcceptedByUserId != userId))
             return Ok(new ApiResponse<bool> { Success = false, Message = "Access denied" });
 
@@ -226,7 +216,7 @@ public class MessagesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        var task = await FindTaskByIdentifierAsync(taskId);
         if (task == null || task.AcceptedByUserId != userId)
             return Ok(new ApiResponse<bool> { Success = false, Message = "Access denied" });
 
@@ -255,7 +245,7 @@ public class MessagesController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskId);
+        var task = await FindTaskByIdentifierAsync(taskId);
         if (task == null || (task.CreatedByUserId != userId && task.AcceptedByUserId != userId))
             return Ok(new ApiResponse<List<object>> { Success = false, Message = "Access denied" });
 
@@ -280,6 +270,18 @@ public class MessagesController : ControllerBase
             Data = progressUpdates,
             Message = "Progress updates retrieved successfully"
         });
+    }
+
+    private async Task<DoForYou.API.Models.Task?> FindTaskByIdentifierAsync(string taskIdentifier)
+    {
+        var task = await _context.Tasks.FirstOrDefaultAsync(t => t.TaskId == taskIdentifier);
+        if (task != null) return task;
+
+        // Older notifications sometimes carry the database primary key rather than
+        // the public TaskId. Resolve that alias, then return/use TaskId as canonical.
+        return int.TryParse(taskIdentifier, out var numericTaskId)
+            ? await _context.Tasks.FirstOrDefaultAsync(t => t.Id == numericTaskId)
+            : null;
     }
 
     private int? GetCurrentUserId()
