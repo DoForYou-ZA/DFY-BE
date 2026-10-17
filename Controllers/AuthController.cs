@@ -1090,39 +1090,7 @@ public class AuthController : ControllerBase
         var user = await _context.Users.FindAsync(userId);
         if (user == null) return Unauthorized();
 
-        return Ok(new AuthResponse
-        {
-            Success = true,
-            Token = GenerateJwtToken(user),
-            User = new UserDto
-            {
-                Id = user.Id,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                Email = user.Email,
-                PhoneNumber = user.PhoneNumber,
-                ProfileCompleted = _userPolicyService.IsProfileComplete(user),
-                ProfileCompletion = _userPolicyService.GetProfileCompletion(user),
-                MissingProfileFields = _userPolicyService.GetMissingProfileFields(user).ToArray(),
-                CanCreateTasks = _userPolicyService.CanCreateTasks(user),
-                CanAcceptTasks = _userPolicyService.CanAcceptTasks(user),
-                Rating = user.Rating,
-                CompletedTasks = user.CompletedTasks,
-                Roles = user.Roles,
-                IsAdmin = user.Roles?.Contains("Admin") == true,
-                UserType = user.UserType,
-                CreatedAt = user.CreatedAt,
-                LastLoginAt = user.LastLoginAt,
-                HasPasswordLogin = user.PasswordLoginEnabled,
-                IsVerified = user.IsVerified,
-                EmailVerified = user.EmailVerified,
-                PhoneVerified = user.PhoneVerified,
-                IdentityVerificationStatus = user.IdentityVerificationStatus,
-                AuthenticatorTwoFactorEnabled = user.AuthenticatorTwoFactorEnabled,
-                HasGoogleLogin = !string.IsNullOrWhiteSpace(user.GoogleSubject)
-            },
-            Message = "Session refreshed"
-        });
+        return Ok(CreateSessionResponse(user, "Session refreshed."));
     }
 
     [EnableRateLimiting("auth")]
