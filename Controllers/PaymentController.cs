@@ -294,13 +294,21 @@ public class PaymentController : ControllerBase
         if (task == null)
             return Ok();
 
+        // Provider events may be retried or arrive out of order. A completed
+        // refund is terminal for webhook processing, and stale pending/processing
+        // events must not undo a failure that is already awaiting reconciliation.
+        if (string.Equals(refund.Status, "Complete", StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(refund.Status, "Failed", StringComparison.OrdinalIgnoreCase) &&
+             eventName is "refund.failed" or "refund.pending" or "refund.processing"))
+            return Ok();
+
         refund.LastReconciledAt = DateTime.UtcNow;
 
         if (eventName == "refund.processed" ||
             string.Equals(providerStatus, "processed", StringComparison.OrdinalIgnoreCase))
         {
             refund.Status = "Complete";
-            refund.CompletedAt = DateTime.UtcNow;
+            refund.CompletedAt ??= DateTime.UtcNow;
 
             task.PaymentStatus = "Refunded";
             task.TaskStatus = "Cancelled";
@@ -394,6 +402,14 @@ public class PaymentController : ControllerBase
                 reference, payout.Amount, amountMinor.Value / 100m);
             return BadRequest();
         }
+
+        // Do not let a delayed failure or success replay undo a completed payout,
+        // and do not resurrect a transfer that Paystack has reported as returned.
+        // A later signed reversal is allowed to move Completed to Returned.
+        if (string.Equals(payout.Status, "Returned", StringComparison.OrdinalIgnoreCase) ||
+            (string.Equals(payout.Status, "Completed", StringComparison.OrdinalIgnoreCase) &&
+             eventName is "transfer.success" or "transfer.failed"))
+            return Ok();
 
         payout.ProviderReference = GetString(data, "transfer_code") ?? payout.ProviderReference;
         payout.UpdatedAt = DateTime.UtcNow;
